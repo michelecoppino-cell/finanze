@@ -24,13 +24,36 @@ export function Impostazioni() {
   const [odBusy, setOdBusy] = useState(false);
 
   // All'apertura (anche al ritorno da un login via redirect), se c'e' un client
-  // id salvato ripristina la sessione e mostra l'account collegato.
+  // id (in parametri o in localStorage) ripristina la sessione e mostra
+  // l'account collegato. Il client id in localStorage e' scritto da collega():
+  // la chiave deve combaciare con LS_CLIENT_ID in onedrive.ts.
   useEffect(() => {
-    if (!p.oneDriveClientId) return;
+    let cidLs: string | null = null;
+    try {
+      cidLs = localStorage.getItem("finanze.onedrive.clientId");
+    } catch {
+      /* localStorage non disponibile */
+    }
+    const cid = (p.oneDriveClientId ?? cidLs ?? "").trim();
+    if (!cid) return;
+    let annulla = false;
     void onedrive()
-      .then((m) => m.ripristinaSessione(p.oneDriveClientId!))
-      .then(setOdUtente)
+      .then((m) => m.ripristinaSessione(cid))
+      .then((u) => {
+        if (annulla) return;
+        setOdUtente(u);
+        // Ripristina il client id nei parametri se andato perso (redirect
+        // avvenuto prima che IndexedDB scrivesse) e allinea il campo.
+        if (u && !p.oneDriveClientId) {
+          setOdClient(cid);
+          setParam({ oneDriveClientId: cid });
+        }
+      })
       .catch(() => {});
+    return () => {
+      annulla = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [p.oneDriveClientId]);
 
   async function odAzione(fn: () => Promise<void>) {
@@ -52,15 +75,11 @@ export function Impostazioni() {
       return;
     }
     if (cid !== p.oneDriveClientId) setParam({ oneDriveClientId: cid });
+    setOdMsg("Reindirizzamento a Microsoft…");
     void odAzione(async () => {
-      const u = await (await onedrive()).collega(cid);
-      if (!u) {
-        // Login via redirect: la pagina si sta ricaricando.
-        setOdMsg("Reindirizzamento a Microsoft…");
-        return;
-      }
-      setOdUtente(u);
-      setOdMsg(`Collegato come ${u}.`);
+      // Login a pagina intera (redirect): la pagina si sposta su Microsoft e al
+      // ritorno l'account risulta collegato (vedi effetto qui sopra).
+      await (await onedrive()).collega(cid);
     });
   }
 

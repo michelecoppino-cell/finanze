@@ -66,12 +66,16 @@ Serve una registrazione (gratuita) dell'app su Azure per ottenere un
    gli URL da cui apri l'app — es. `http://localhost:5173` per lo sviluppo e la
    tua URL Cloudflare Pages (es. `https://finanze.pages.dev`) per la produzione.
 4. Registra e copia l'**Application (client) ID** dalla pagina Overview.
-5. Nell'app: **Impostazioni → Sincronizza con OneDrive**, incolla il client ID,
-   **Collega OneDrive** e accedi con Microsoft. Poi usa **Salva su OneDrive** /
-   **Carica da OneDrive**, oppure attiva il salvataggio automatico.
+5. Nell'app: **Impostazioni → Sincronizza con OneDrive**, incolla il client ID e
+   premi **Collega OneDrive**. L'app si sposta sulla pagina di accesso Microsoft
+   (login **a pagina intera**, senza popup) e al ritorno risulti collegato. Poi
+   usa **Salva su OneDrive** / **Carica da OneDrive**, oppure attiva il
+   salvataggio automatico. Se OneDrive è configurato ma non hai fatto l'accesso,
+   all'avvio compare un avviso con **Accedi con Microsoft**.
 
 > Nota: gli URL di redirect registrati su Azure devono combaciare **esattamente**
-> con quelli da cui apri l'app, altrimenti il login viene rifiutato.
+> con quelli da cui apri l'app (stesso schema/host, senza barra finale di
+> troppo), altrimenti Microsoft rifiuta il ritorno con l'errore AADSTS50011.
 
 ### 2. Importare i movimenti da CSV (aggiornamenti dal conto)
 
