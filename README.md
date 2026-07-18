@@ -47,6 +47,32 @@ Per fare un backup: **Impostazioni → Esporta JSON** (salvalo dove vuoi, es. un
 cartella OneDrive). Per spostare i dati su un altro dispositivo: esporta di là,
 importa di qua.
 
+### 3. Sincronizzare con OneDrive (login Microsoft)
+
+In alternativa all'export/import manuale, l'app può salvare il backup
+direttamente nel tuo OneDrive, così è disponibile su ogni dispositivo. È tutto
+client-side (via [MSAL](https://learn.microsoft.com/entra/identity-platform/msal-overview)):
+nessun backend, nessun segreto. L'app usa lo scope `Files.ReadWrite.AppFolder`,
+quindi vede **solo** la propria cartella `Apps/Finanze` e non il resto di OneDrive.
+
+Serve una registrazione (gratuita) dell'app su Azure per ottenere un
+**Application (client) ID**:
+
+1. Vai su [Azure Portal → Microsoft Entra ID → App registrations](https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade)
+   → **New registration**.
+2. **Name**: `Finanze` (o quel che vuoi). **Supported account types**: scegli
+   *"Accounts in any organizational directory and personal Microsoft accounts"*.
+3. **Redirect URI**: piattaforma **Single-page application (SPA)**, e aggiungi
+   gli URL da cui apri l'app — es. `http://localhost:5173` per lo sviluppo e la
+   tua URL Cloudflare Pages (es. `https://finanze.pages.dev`) per la produzione.
+4. Registra e copia l'**Application (client) ID** dalla pagina Overview.
+5. Nell'app: **Impostazioni → Sincronizza con OneDrive**, incolla il client ID,
+   **Collega OneDrive** e accedi con Microsoft. Poi usa **Salva su OneDrive** /
+   **Carica da OneDrive**, oppure attiva il salvataggio automatico.
+
+> Nota: gli URL di redirect registrati su Azure devono combaciare **esattamente**
+> con quelli da cui apri l'app, altrimenti il login viene rifiutato.
+
 ### 2. Importare i movimenti da CSV (aggiornamenti dal conto)
 
 Per aggiungere nuovi movimenti dal tuo conto:
@@ -95,9 +121,9 @@ src/
 - [x] **Fase 1-2** — Scaffold, storage, import CSV, movimenti, analisi spese.
 - [x] **Fase 3** — Saldo reale (grezzo → netto tasse → potere d'acquisto),
       modulo Tasse.
-- [ ] **Fase 4-5** — Proiezione futura, investimenti, dashboard pensione.
-- [ ] **OneDrive** — login Microsoft + sync automatica (opzionale, gratuito,
-      client-side via MSAL).
+- [x] **Fase 4-5** — Proiezione futura, investimenti, dashboard pensione.
+- [x] **OneDrive** — login Microsoft + salvataggio/caricamento backup e
+      salvataggio automatico (opzionale, gratuito, client-side via MSAL).
 
 ## Privacy
 
