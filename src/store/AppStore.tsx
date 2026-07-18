@@ -35,15 +35,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     caricaDati()
       .then((d) => {
-        if (d) {
-          setDati(d);
-          // Se c'e' una sessione OneDrive salvata, ripristinala in silenzio
-          // cosi' l'auto-salvataggio riparte dopo un reload.
-          if (d.parametri.oneDriveClientId) {
-            void onedrive()
-              .then((m) => m.ripristinaSessione(d.parametri.oneDriveClientId!))
-              .catch(() => {});
-          }
+        if (d) setDati(d);
+        // Bootstrap OneDrive: completa un eventuale login tornato via redirect e
+        // ripristina la sessione (per l'auto-salvataggio). Carica MSAL solo se
+        // serve davvero — client id noto o risposta di redirect nell'URL — cosi'
+        // chi non usa OneDrive non paga nulla all'avvio.
+        let cidLs: string | null = null;
+        try {
+          cidLs = localStorage.getItem("finanze.onedrive.clientId");
+        } catch {
+          /* localStorage non disponibile */
+        }
+        const cid = d?.parametri.oneDriveClientId ?? cidLs ?? null;
+        const haRispostaRedirect = /[#?&](code|error)=/.test(
+          window.location.href,
+        );
+        if (cid || haRispostaRedirect) {
+          void onedrive()
+            .then((m) => {
+              const clientId = cid ?? m.clientIdRicordato();
+              return clientId ? m.ripristinaSessione(clientId) : null;
+            })
+            .catch(() => {});
         }
       })
       .finally(() => setCaricato(true));
