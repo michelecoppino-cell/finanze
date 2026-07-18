@@ -336,7 +336,101 @@ label.campo {
   gap: 12px;
 }
 
+/* ---------- Filtri movimenti ---------- */
+
+.filtri {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.filtro-campo {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.filtro-campo input {
+  padding: 5px 7px;
+}
+
+/* Riga di un movimento marcato come trasferimento/giroconto. */
+tr.riga-trasf > td:first-child {
+  border-left: 3px solid var(--primario);
+}
+
+/* ---------- Editor categorie (Impostazioni) ---------- */
+
+.lista-categorie {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cat-riga {
+  display: grid;
+  grid-template-columns: 170px 1fr;
+  gap: 10px;
+  align-items: center;
+}
+.cat-nome {
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.cat-rimuovi {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  padding: 0 4px;
+}
+.cat-rimuovi:hover {
+  color: var(--uscita);
+}
+.cat-descr {
+  width: 100%;
+}
+
+/* ---------- Proiezione: grafico + editor affiancati (desktop) ---------- */
+
+.proiezione-griglia {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.colonna-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.colonna-grafico {
+  margin-bottom: 0;
+}
+
+@media (min-width: 1024px) {
+  .proiezione-griglia {
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+    align-items: start;
+  }
+  .colonna-grafico {
+    position: sticky;
+    top: 76px;
+  }
+}
+
 /* ---------- Responsive ---------- */
+
+@media (max-width: 560px) {
+  .cat-riga {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+}
 
 @media (max-width: 760px) {
   .sidebar {

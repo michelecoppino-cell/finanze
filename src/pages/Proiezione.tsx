@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import {
   AreaChart,
   Area,
@@ -22,8 +22,6 @@ const COL_GAIN = "#54a24b"; // guadagni
 export function Proiezione() {
   const { dati, aggiorna } = useApp();
   const p = dati.parametri;
-  const [mostraEventi, setMostraEventi] = useState(false);
-  const [mostraInv, setMostraInv] = useState(false);
 
   const ris = useMemo(
     () =>
@@ -44,6 +42,14 @@ export function Proiezione() {
   }
 
   const annoPensione = ris.dataPensione?.slice(0, 4);
+
+  // Rendita integrativa: la stima dell'engine è LORDA (tasso di prelievo sul
+  // capitale). Applichiamo l'aliquota per mostrarla anche al netto delle tasse.
+  const aliquotaRendita = p.aliquotaRendita ?? 0.15;
+  const renditaNettaAnnua =
+    ris.renditaAnnua !== undefined
+      ? ris.renditaAnnua * (1 - aliquotaRendita)
+      : undefined;
 
   if (dati.eventiFuturi.length === 0 && dati.investimenti.length === 0) {
     return (
@@ -81,13 +87,21 @@ export function Proiezione() {
           </div>
         </div>
         <div className="stat">
-          <div className="etichetta">Rendita integrativa /anno</div>
+          <div className="etichetta">Rendita integrativa /anno — LORDA</div>
+          <div className="valore">{euro(ris.renditaAnnua)}</div>
+          <div className="muted" style={{ fontSize: 12 }}>
+            ~{euro(ris.renditaMensile)}/mese · prelievo{" "}
+            {((p.tassoRendita ?? 0.035) * 100).toFixed(1)}% · <b>non ancora tassata</b>
+          </div>
+        </div>
+        <div className="stat">
+          <div className="etichetta">Rendita netta stimata /anno</div>
           <div className="valore" style={{ color: COL_GAIN }}>
-            {euro(ris.renditaAnnua)}
+            {euro(renditaNettaAnnua)}
           </div>
           <div className="muted" style={{ fontSize: 12 }}>
-            ~{euro(ris.renditaMensile)}/mese · stima lorda al{" "}
-            {((p.tassoRendita ?? 0.035) * 100).toFixed(1)}%
+            ~{euro(renditaNettaAnnua !== undefined ? renditaNettaAnnua / 12 : undefined)}
+            /mese · dopo tasse {(aliquotaRendita * 100).toFixed(0)}%
           </div>
         </div>
       </div>
@@ -123,6 +137,17 @@ export function Proiezione() {
             />
           </label>
           <label className="campo">
+            Tassazione rendita (es. 0.15 = 15%)
+            <input
+              type="number"
+              step="0.01"
+              value={p.aliquotaRendita ?? 0.15}
+              onChange={(e) =>
+                setParam({ aliquotaRendita: Number(e.target.value) })
+              }
+            />
+          </label>
+          <label className="campo">
             Inflazione annua (già scontata nei tassi reali)
             <input
               type="number"
@@ -134,11 +159,15 @@ export function Proiezione() {
         </div>
         <p className="muted" style={{ margin: 0, fontSize: 12 }}>
           Tutti i valori sono in <b>potere d'acquisto di oggi</b>: entrate e
-          rendimenti sono già al netto dell'inflazione.
+          rendimenti sono già al netto dell'inflazione. La <b>rendita lorda</b>{" "}
+          (tasso di prelievo sul capitale) <b>non è tassata</b>: la{" "}
+          <b>rendita netta</b> applica l'aliquota qui sopra (per un fondo
+          pensione la tassazione finale è ~15%, riducibile fino al 9%).
         </p>
       </div>
 
-      <div className="card">
+      <div className="proiezione-griglia">
+        <div className="card colonna-grafico">
         <h3>Ricchezza futura stimata</h3>
         <div style={{ width: "100%", height: 360 }}>
           <ResponsiveContainer>
@@ -217,28 +246,29 @@ export function Proiezione() {
         <p className="muted" style={{ fontSize: 12 }}>
           L'area totale è il patrimonio netto: <b>liquido</b> (cash disponibile,
           già al netto di versamenti e spese grosse), <b>capitale investito</b>{" "}
-          (vincolato) e <b>guadagni</b> (interessi composti). Il capitale resta
-          investito fino alla pensione: solo lì le tranche maturano e tornano nel
-          liquido.
+          (vincolato, include i giroconti/PAC già trasferiti) e <b>guadagni</b>{" "}
+          (interessi composti). Il capitale resta investito fino alla pensione:
+          solo lì le tranche maturano e tornano nel liquido.
         </p>
-      </div>
+        </div>
 
-      <div className="card">
-        <button
-          className="secondario"
-          onClick={() => setMostraEventi((v) => !v)}
-        >
-          {mostraEventi ? "▾" : "▸"} Scenari entrate/uscite (
-          {dati.eventiFuturi.length})
-        </button>
-        {mostraEventi && <EditorEventi />}
-      </div>
-
-      <div className="card">
-        <button className="secondario" onClick={() => setMostraInv((v) => !v)}>
-          {mostraInv ? "▾" : "▸"} Investimenti ({dati.investimenti.length})
-        </button>
-        {mostraInv && <EditorInvestimenti />}
+        <div className="colonna-editor">
+          <div className="card" style={{ marginBottom: 0 }}>
+            <h3 style={{ marginBottom: 6 }}>
+              Scenari entrate/uscite ({dati.eventiFuturi.length})
+            </h3>
+            <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>
+              Modifica i valori: il grafico a sinistra si aggiorna in tempo reale.
+            </p>
+            <EditorEventi />
+          </div>
+          <div className="card" style={{ marginBottom: 0 }}>
+            <h3 style={{ marginBottom: 6 }}>
+              Investimenti ({dati.investimenti.length})
+            </h3>
+            <EditorInvestimenti />
+          </div>
+        </div>
       </div>
     </>
   );

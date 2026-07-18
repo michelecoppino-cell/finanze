@@ -15,6 +15,13 @@ export interface Transazione {
   fattura?: boolean;
   /** Flag "tasse" (Excel: colonna I = "x"). Il movimento e' un pagamento di tasse. */
   tasse?: boolean;
+  /**
+   * Flag "trasferimento": il movimento non e' una vera spesa/entrata ma uno
+   * spostamento di denaro verso un altro conto o strumento (es. giroconto,
+   * PAC su Scalable). NON conta come spesa nell'analisi e non "sparisce" dal
+   * patrimonio: resta nel totale come capitale investito.
+   */
+  trasferimento?: boolean;
   /** Categoria di spesa/entrata (Excel: colonna J). */
   categoria?: string;
   note?: string; // colonna K
@@ -25,6 +32,11 @@ export interface Categoria {
   nome: string;
   colore?: string;
   tipo?: "spesa" | "entrata";
+  /**
+   * Descrizione/esempi della categoria: serve a "istruire" Claude nella
+   * categorizzazione automatica (viene inclusa nel prompt).
+   */
+  descrizione?: string;
 }
 
 /** Dati fiscali per anno (foglio "Tasse"): forfettario + Inarcassa. */
@@ -78,6 +90,13 @@ export interface Parametri {
   etaPensione?: number;
   /** Tasso di prelievo annuo per stimare la rendita integrativa (default 0.04 = 4%). */
   tassoRendita?: number;
+  /**
+   * Aliquota di tassazione della rendita integrativa post-pensione (default
+   * 0.15 = 15%, tipico di un fondo pensione, riducibile fino al 9%). Serve a
+   * mostrare la rendita anche al netto delle tasse. Se 0, la rendita e' gia'
+   * considerata netta.
+   */
+  aliquotaRendita?: number;
   /** Hash della password del gate (SHA-256 hex). Assente = nessuna password. */
   passwordHash?: string;
   /** OneDrive: Application (client) ID dell'app registrata su Azure (SPA). */
@@ -99,19 +118,71 @@ export interface DatiApp {
 
 export const VERSIONE_DATI = 1;
 
-/** Categorie di default (dal foglio "Dati" dell'Excel). */
+/** Categorie di default (dal foglio "Dati" dell'Excel). Le descrizioni servono
+ * a guidare la categorizzazione automatica con Claude. */
 export const CATEGORIE_DEFAULT: Categoria[] = [
-  { nome: "Spesa/casa", tipo: "spesa" },
-  { nome: "Abbonamenti", tipo: "spesa" },
-  { nome: "Benzina", tipo: "spesa" },
-  { nome: "Auto", tipo: "spesa" },
-  { nome: "Cene/Ape", tipo: "spesa" },
-  { nome: "Regali", tipo: "spesa" },
-  { nome: "Ferie", tipo: "spesa" },
-  { nome: "Extra", tipo: "spesa" },
-  { nome: "Contanti", tipo: "spesa" },
-  { nome: "Messico/Lavoro", tipo: "spesa" },
-  { nome: "Da fare", tipo: "spesa" },
+  {
+    nome: "Spesa/casa",
+    tipo: "spesa",
+    descrizione:
+      "Spesa alimentare e per la casa: supermercati (Esselunga, Coop, Lidl, Carrefour, Conad), alimentari, prodotti per la casa, farmacia.",
+  },
+  {
+    nome: "Abbonamenti",
+    tipo: "spesa",
+    descrizione:
+      "Servizi ricorrenti e addebiti automatici: streaming (Netflix, Spotify, Disney+, Prime), telefono/internet, cloud, software, palestra.",
+  },
+  {
+    nome: "Benzina",
+    tipo: "spesa",
+    descrizione:
+      "Carburante e rifornimenti: distributori (Q8, Eni, IP, Tamoil, Esso), colonnine di ricarica elettrica.",
+  },
+  {
+    nome: "Auto",
+    tipo: "spesa",
+    descrizione:
+      "Spese auto non carburante: assicurazione, bollo, manutenzione/officina, pedaggi (Telepass, autostrade), parcheggi, multe.",
+  },
+  {
+    nome: "Cene/Ape",
+    tipo: "spesa",
+    descrizione:
+      "Ristoranti, bar, aperitivi, pizzerie, caffe, fast food, consegne di cibo (Glovo, Deliveroo, JustEat).",
+  },
+  {
+    nome: "Regali",
+    tipo: "spesa",
+    descrizione: "Regali e occasioni: compleanni, matrimoni, feste, fiori.",
+  },
+  {
+    nome: "Ferie",
+    tipo: "spesa",
+    descrizione:
+      "Viaggi e vacanze: hotel, voli, treni, Airbnb, noleggi, attivita turistiche.",
+  },
+  {
+    nome: "Extra",
+    tipo: "spesa",
+    descrizione:
+      "Spese varie che non rientrano nelle altre categorie: shopping, elettronica, tempo libero, salute.",
+  },
+  {
+    nome: "Contanti",
+    tipo: "spesa",
+    descrizione: "Prelievi di contante (ATM/bancomat, prelievo sportello).",
+  },
+  {
+    nome: "Messico/Lavoro",
+    tipo: "spesa",
+    descrizione: "Spese legate al lavoro o alla trasferta in Messico.",
+  },
+  {
+    nome: "Da fare",
+    tipo: "spesa",
+    descrizione: "Movimenti ancora da classificare o da verificare a mano.",
+  },
 ];
 
 /** Stato iniziale vuoto dell'app. */
@@ -130,6 +201,7 @@ export function datiVuoti(): DatiApp {
       inflazione: 0.02,
       etaPensione: 67,
       tassoRendita: 0.035,
+      aliquotaRendita: 0.15,
     },
   };
 }

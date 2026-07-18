@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   LineChart,
   Line,
@@ -16,18 +16,35 @@ import { euro } from "../util";
 const COLORI = {
   grezzo: "#8a94a6",
   nettoTasse: "#4c78a8",
-  potereAcquisto: "#54a24b",
+  totale: "#54a24b",
 };
 
 export function Saldo() {
   const { dati } = useApp();
+  const [da, setDa] = useState("");
+  const [a, setA] = useState("");
 
   const ris = useMemo(
     () => calcolaSaldo(dati.transazioni, dati.tasse, dati.parametri),
     [dati.transazioni, dati.tasse, dati.parametri],
   );
 
-  const datiGrafico = useMemo(() => campiona(ris.punti, 7), [ris.punti]);
+  const primaData = ris.punti[0]?.data ?? "";
+  const ultimaData = ris.ultimo?.data ?? "";
+
+  // C'è almeno un trasferimento da mostrare?
+  const haInvestito = (ris.ultimo?.investito ?? 0) > 0;
+
+  const puntiRange = useMemo(() => {
+    if (!da && !a) return ris.punti;
+    return ris.punti.filter((p) => {
+      if (da && p.data < da) return false;
+      if (a && p.data > a) return false;
+      return true;
+    });
+  }, [ris.punti, da, a]);
+
+  const datiGrafico = useMemo(() => campiona(puntiRange, 7), [puntiRange]);
 
   if (dati.transazioni.length === 0) {
     return (
@@ -39,6 +56,24 @@ export function Saldo() {
   }
 
   const u = ris.ultimo;
+  const annoCorrente = new Date().getFullYear();
+
+  function preset(nome: "tutto" | "ultimoAnno" | "ultimi3" | "annoCorrente") {
+    if (nome === "tutto") {
+      setDa("");
+      setA("");
+      return;
+    }
+    setA(ultimaData);
+    const d = new Date(ultimaData + "T00:00:00");
+    if (nome === "ultimoAnno") d.setFullYear(d.getFullYear() - 1);
+    else if (nome === "ultimi3") d.setFullYear(d.getFullYear() - 3);
+    else if (nome === "annoCorrente") {
+      setDa(`${annoCorrente}-01-01`);
+      return;
+    }
+    setDa(d.toISOString().slice(0, 10));
+  }
 
   return (
     <>
@@ -46,19 +81,39 @@ export function Saldo() {
         <div className="stat">
           <div className="etichetta">Saldo grezzo</div>
           <div className="valore">{euro(u?.grezzo)}</div>
+          <div className="muted" style={{ fontSize: 12 }}>
+            soldi effettivi sul conto
+          </div>
         </div>
         <div className="stat">
           <div className="etichetta">Netto tasse</div>
           <div className="valore" style={{ color: COLORI.nettoTasse }}>
             {euro(u?.nettoTasse)}
           </div>
-        </div>
-        <div className="stat">
-          <div className="etichetta">Potere d'acquisto</div>
-          <div className="valore" style={{ color: COLORI.potereAcquisto }}>
-            {euro(u?.potereAcquisto)}
+          <div className="muted" style={{ fontSize: 12 }}>
+            tasse accantonate
           </div>
         </div>
+        {haInvestito && (
+          <>
+            <div className="stat">
+              <div className="etichetta">Investito (giroconti)</div>
+              <div className="valore">{euro(u?.investito)}</div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                trasferito su altri conti/PAC
+              </div>
+            </div>
+            <div className="stat">
+              <div className="etichetta">Patrimonio totale</div>
+              <div className="valore" style={{ color: COLORI.totale }}>
+                {euro(u?.totale)}
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                netto tasse + investito
+              </div>
+            </div>
+          </>
+        )}
         <div className="stat">
           <div className="etichetta">Ultimo dato</div>
           <div className="valore" style={{ fontSize: 18 }}>
@@ -68,12 +123,62 @@ export function Saldo() {
       </div>
 
       <div className="card">
-        <h3>Andamento del saldo</h3>
+        <div
+          className="riga-azioni"
+          style={{ justifyContent: "space-between", marginBottom: 10 }}
+        >
+          <h3 style={{ margin: 0 }}>Andamento del saldo</h3>
+          <div className="riga-azioni" style={{ gap: 6 }}>
+            <button className="secondario" onClick={() => preset("tutto")}>
+              Tutto
+            </button>
+            <button className="secondario" onClick={() => preset("ultimoAnno")}>
+              Ultimo anno
+            </button>
+            <button className="secondario" onClick={() => preset("ultimi3")}>
+              Ultimi 3 anni
+            </button>
+            <button
+              className="secondario"
+              onClick={() => preset("annoCorrente")}
+            >
+              {annoCorrente}
+            </button>
+          </div>
+        </div>
+        <div className="riga-azioni" style={{ marginBottom: 10 }}>
+          <label className="filtro-campo">
+            <span>Da</span>
+            <input
+              type="date"
+              value={da}
+              min={primaData}
+              max={ultimaData}
+              onChange={(e) => setDa(e.target.value)}
+            />
+          </label>
+          <label className="filtro-campo">
+            <span>A</span>
+            <input
+              type="date"
+              value={a}
+              min={primaData}
+              max={ultimaData}
+              onChange={(e) => setA(e.target.value)}
+            />
+          </label>
+        </div>
         <p className="muted" style={{ marginTop: -4 }}>
-          <b>Grezzo</b>: saldo reale del conto. <b>Netto tasse</b>: con le tasse
-          (forfettario + Inarcassa) accantonate giorno-per-giorno.{" "}
-          <b>Potere d'acquisto</b>: anche con gli incassi da fattura distribuiti
-          sul mese di competenza.
+          <b>Grezzo</b>: i soldi effettivamente sul conto. <b>Netto tasse</b>:
+          con le tasse (forfettario + Inarcassa) accantonate giorno-per-giorno —
+          i soldi davvero tuoi.
+          {haInvestito && (
+            <>
+              {" "}
+              <b>Patrimonio totale</b>: aggiunge il capitale trasferito su altri
+              conti/PAC, che non sparisce ma diventa investito.
+            </>
+          )}
         </p>
         <div style={{ width: "100%", height: 360 }}>
           <ResponsiveContainer>
@@ -117,16 +222,18 @@ export function Saldo() {
                 name="Netto tasse"
                 stroke={COLORI.nettoTasse}
                 dot={false}
-                strokeWidth={1.5}
-              />
-              <Line
-                type="monotone"
-                dataKey="potereAcquisto"
-                name="Potere d'acquisto"
-                stroke={COLORI.potereAcquisto}
-                dot={false}
                 strokeWidth={2}
               />
+              {haInvestito && (
+                <Line
+                  type="monotone"
+                  dataKey="totale"
+                  name="Patrimonio totale"
+                  stroke={COLORI.totale}
+                  dot={false}
+                  strokeWidth={2}
+                />
+              )}
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -135,9 +242,8 @@ export function Saldo() {
       {dati.tasse.length === 0 && (
         <div className="card">
           <p className="muted" style={{ margin: 0 }}>
-            Non hai ancora inserito i dati fiscali per anno: le curve "netto
-            tasse" e "potere d'acquisto" coincidono col grezzo. Aggiungili nella
-            pagina <b>Tasse</b>.
+            Non hai ancora inserito i dati fiscali per anno: la curva "netto
+            tasse" coincide col grezzo. Aggiungili nella pagina <b>Tasse</b>.
           </p>
         </div>
       )}

@@ -16,6 +16,10 @@ export interface PuntoSaldo {
   grezzo: number;
   nettoTasse: number;
   potereAcquisto: number;
+  /** Capitale cumulato trasferito su altri conti/investimenti (giroconti/PAC). */
+  investito: number;
+  /** Patrimonio totale: netto tasse + capitale investito (i trasferimenti non "spariscono"). */
+  totale: number;
 }
 
 export interface SaldoRisultato {
@@ -62,6 +66,7 @@ export function calcolaSaldo(
 
   const netto = new Map<string, number>(); // entrate - uscite per giorno
   const tassePagate = new Map<string, number>(); // uscite flag tasse per giorno
+  const trasferGiorno = new Map<string, number>(); // uscite flag trasferimento per giorno
   const fatturaGiorno = new Map<string, number>(); // entrate flag fattura per giorno
   const fatturaMese = new Map<string, number>(); // entrate flag fattura per mese yyyy-mm
 
@@ -70,6 +75,8 @@ export function calcolaSaldo(
     netto.set(d, (netto.get(d) ?? 0) + (t.entrate ?? 0) - (t.uscite ?? 0));
     if (t.tasse && t.uscite)
       tassePagate.set(d, (tassePagate.get(d) ?? 0) + t.uscite);
+    if (t.trasferimento && t.uscite)
+      trasferGiorno.set(d, (trasferGiorno.get(d) ?? 0) + t.uscite);
     if (t.fattura && t.entrate) {
       fatturaGiorno.set(d, (fatturaGiorno.get(d) ?? 0) + t.entrate);
       const m = d.slice(0, 7);
@@ -88,6 +95,7 @@ export function calcolaSaldo(
 
   let cumNetto = par.saldoInizialeValore ?? 0;
   let cumTassePagate = 0;
+  let cumTrasferito = 0;
   let cumFatturaBlocco = 0;
   let fatturaMesiCompletati = 0;
   let meseCorrente = "";
@@ -100,6 +108,7 @@ export function calcolaSaldo(
 
     cumNetto += netto.get(iso) ?? 0;
     cumTassePagate += tassePagate.get(iso) ?? 0;
+    cumTrasferito += trasferGiorno.get(iso) ?? 0;
     cumFatturaBlocco += fatturaGiorno.get(iso) ?? 0;
 
     if (meseCorrente && mese !== meseCorrente) {
@@ -125,11 +134,17 @@ export function calcolaSaldo(
       ((fatturaMese.get(mese) ?? 0) * d.getDate()) / giorniMese;
     const potereAcquisto = nettoTasse - cumFatturaBlocco + fatturaSpalmata;
 
+    // I trasferimenti hanno gia' ridotto grezzo/nettoTasse (sono usciti dal
+    // conto): riaggiungendoli come "investito" il patrimonio totale non cala.
+    const totale = nettoTasse + cumTrasferito;
+
     punti.push({
       data: iso,
       grezzo: round(grezzo),
       nettoTasse: round(nettoTasse),
       potereAcquisto: round(potereAcquisto),
+      investito: round(cumTrasferito),
+      totale: round(totale),
     });
   }
 
