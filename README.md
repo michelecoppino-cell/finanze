@@ -29,6 +29,42 @@ npm run preview  # anteprima della build
 
 Nessun backend, nessuna variabile d'ambiente, nessun costo: è tutto statico.
 
+## Come caricare i dati
+
+I dati vivono solo nel tuo browser. Ci sono due modi per farli entrare:
+
+### 1. Importare un backup JSON (consigliato per iniziare)
+
+Un file `.json` contiene **tutto**: movimenti già categorizzati, tasse,
+parametri. È anche il formato di backup/spostamento tra dispositivi.
+
+1. Apri l'app (la tua URL Cloudflare, oppure `npm run dev` in locale).
+2. Vai su **Impostazioni → Importa JSON**.
+3. Seleziona il file `.json`. Fatto: movimenti, analisi, saldo e tasse si
+   popolano subito.
+
+Per fare un backup: **Impostazioni → Esporta JSON** (salvalo dove vuoi, es. una
+cartella OneDrive). Per spostare i dati su un altro dispositivo: esporta di là,
+importa di qua.
+
+### 2. Importare i movimenti da CSV (aggiornamenti dal conto)
+
+Per aggiungere nuovi movimenti dal tuo conto:
+
+1. Dalla tua banca, esporta i movimenti in **CSV** (qualsiasi export va bene).
+2. Nell'app: **Movimenti → Importa CSV** e seleziona il file.
+3. L'app prova a indovinare le colonne (data, entrate, uscite, causale);
+   controlla la mappatura nell'anteprima e conferma. Gestisce separatore `;`
+   o `,` e i formati italiani (`1.234,56`, `gg/mm/aaaa`).
+4. I nuovi movimenti si aggiungono a quelli esistenti. Categorizzali a mano
+   o col bottone **Categorizza con Claude**.
+
+## Flusso di lavoro (git)
+
+Per impostazione predefinita ogni modifica viene sviluppata su un branch e poi
+**aperta come Pull Request e mergiata su `main`**. Cloudflare Pages ricompila e
+pubblica `main` a ogni merge.
+
 ## Struttura
 
 ```
@@ -43,10 +79,13 @@ src/
   engine/
     analisi.ts        analisi spese per categoria/mese/anno (logica SUMIFS)
   auth/Gate.tsx       barriera con codice di accesso
+  engine/
+    saldo.ts          saldo giornaliero: grezzo, netto tasse, potere d'acquisto
   pages/
     Movimenti.tsx     import CSV, tabella, categorie, prompt Claude
     AnalisiSpese.tsx  tabella + grafico spese
-    Saldo.tsx         (Fase 3) saldo reale
+    Saldo.tsx         saldo reale (grafico a linee)
+    Tasse.tsx         dati fiscali per anno (editabili)
     Proiezione.tsx    (Fasi 4-5) proiezione futura
     Impostazioni.tsx  parametri, categorie, password, backup
 ```
@@ -54,8 +93,8 @@ src/
 ## Roadmap
 
 - [x] **Fase 1-2** — Scaffold, storage, import CSV, movimenti, analisi spese.
-- [ ] **Fase 3** — Saldo reale (grezzo → riadattamento tasse → mensilizzazione
-      fatture), moduli Tasse e Fatture.
+- [x] **Fase 3** — Saldo reale (grezzo → netto tasse → potere d'acquisto),
+      modulo Tasse.
 - [ ] **Fase 4-5** — Proiezione futura, investimenti, dashboard pensione.
 - [ ] **OneDrive** — login Microsoft + sync automatica (opzionale, gratuito,
       client-side via MSAL).
