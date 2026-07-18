@@ -83,6 +83,17 @@ export function AnalisiSpese() {
             {euro(saldoNetto)}
           </div>
         </div>
+        <div className="stat">
+          <div className="etichetta">Tasso di risparmio</div>
+          <div className="valore">
+            {analisi.totaleEntrate > 0
+              ? ((saldoNetto / analisi.totaleEntrate) * 100).toFixed(0) + "%"
+              : "—"}
+          </div>
+          <div className="muted" style={{ fontSize: 12 }}>
+            quota di entrate risparmiata
+          </div>
+        </div>
       </div>
 
       <div className="card">
