@@ -21,24 +21,46 @@ const GRAPH_FILE = `https://graph.microsoft.com/v1.0/me/drive/special/approot:/$
 const GRAPH_CONTENT = `${GRAPH_FILE}:/content`;
 
 let msal: PublicClientApplication | null = null;
+let msalPromise: Promise<PublicClientApplication> | null = null;
 let clientIdCorrente: string | null = null;
 
-/** Crea (una volta) l'istanza MSAL per il client id dato e la inizializza. */
-async function getMsal(clientId: string): Promise<PublicClientApplication> {
-  if (msal && clientIdCorrente === clientId) return msal;
-  const istanza = new PublicClientApplication({
-    auth: {
-      clientId,
-      // "common" copre sia account Microsoft personali sia work/school.
-      authority: "https://login.microsoftonline.com/common",
-      redirectUri: window.location.origin,
-    },
-    cache: { cacheLocation: "localStorage" },
-  });
-  await istanza.initialize();
-  msal = istanza;
+/**
+ * Crea (una sola volta) l'istanza MSAL per il client id dato, la inizializza e
+ * completa un eventuale login tornato via redirect. La promise e' memoizzata per
+ * evitare doppie inizializzazioni in caso di chiamate concorrenti.
+ */
+function getMsal(clientId: string): Promise<PublicClientApplication> {
+  if (msalPromise && clientIdCorrente === clientId) return msalPromise;
   clientIdCorrente = clientId;
-  return istanza;
+  msalPromise = (async () => {
+    const istanza = new PublicClientApplication({
+      auth: {
+        clientId,
+        // "common" copre sia account Microsoft personali sia work/school.
+        authority: "https://login.microsoftonline.com/common",
+        redirectUri: window.location.origin,
+      },
+      cache: { cacheLocation: "localStorage" },
+    });
+    await istanza.initialize();
+    // Se torniamo da un login via redirect, completa il flusso e imposta
+    // l'account attivo.
+    const risposta = await istanza.handleRedirectPromise();
+    if (risposta?.account) istanza.setActiveAccount(risposta.account);
+    msal = istanza;
+    return istanza;
+  })();
+  return msalPromise;
+}
+
+/** True se l'errore indica che le popup non sono utilizzabili in questo contesto. */
+function popupNonPermesso(e: unknown): boolean {
+  const code = (e as { errorCode?: string })?.errorCode;
+  return (
+    code === "block_nested_popups" ||
+    code === "popup_window_error" ||
+    code === "empty_window_error"
+  );
 }
 
 function accountAttivo(m: PublicClientApplication): AccountInfo | null {
@@ -68,12 +90,26 @@ export async function ripristinaSessione(clientId: string): Promise<string | nul
   return a ? nomeDi(a) : null;
 }
 
-/** Login interattivo (popup). Ritorna il nome dell'account collegato. */
+/**
+ * Login interattivo. Prova prima con popup; se il contesto non le consente (es.
+ * la pagina e' aperta in una finestra con `opener`, errore block_nested_popups)
+ * ripiega sul flusso a redirect: la pagina viene ricaricata e il login si
+ * completa al ritorno (vedi getMsal → handleRedirectPromise). In quel caso la
+ * funzione non ritorna un nome perche' la navigazione avviene prima.
+ */
 export async function collega(clientId: string): Promise<string> {
   const m = await getMsal(clientId);
-  const res = await m.loginPopup({ scopes: SCOPES });
-  m.setActiveAccount(res.account);
-  return nomeDi(res.account);
+  try {
+    const res = await m.loginPopup({ scopes: SCOPES });
+    m.setActiveAccount(res.account);
+    return nomeDi(res.account);
+  } catch (e) {
+    if (popupNonPermesso(e)) {
+      await m.loginRedirect({ scopes: SCOPES });
+      return ""; // la pagina naviga via prima di arrivare qui
+    }
+    throw e;
+  }
 }
 
 /** Scollega l'account: rimuove token e account dalla cache locale (senza popup). */
@@ -93,8 +129,17 @@ async function token(clientId: string): Promise<string> {
     return r.accessToken;
   } catch (e) {
     if (e instanceof InteractionRequiredAuthError) {
-      const r = await m.acquireTokenPopup({ scopes: SCOPES, account: a });
-      return r.accessToken;
+      try {
+        const r = await m.acquireTokenPopup({ scopes: SCOPES, account: a });
+        return r.accessToken;
+      } catch (e2) {
+        if (popupNonPermesso(e2)) {
+          // Popup bloccate: rinnova l'accesso via redirect (la pagina ricarica).
+          await m.acquireTokenRedirect({ scopes: SCOPES, account: a });
+          throw new Error("Reindirizzamento a Microsoft per l'accesso…");
+        }
+        throw e2;
+      }
     }
     throw e;
   }

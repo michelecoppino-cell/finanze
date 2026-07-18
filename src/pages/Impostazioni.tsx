@@ -23,10 +23,14 @@ export function Impostazioni() {
   const [odMsg, setOdMsg] = useState("");
   const [odBusy, setOdBusy] = useState(false);
 
-  // All'apertura, se c'e' un client id salvato, verifica se siamo gia' collegati.
+  // All'apertura (anche al ritorno da un login via redirect), se c'e' un client
+  // id salvato ripristina la sessione e mostra l'account collegato.
   useEffect(() => {
     if (!p.oneDriveClientId) return;
-    void onedrive().then((m) => setOdUtente(m.accountCollegato()));
+    void onedrive()
+      .then((m) => m.ripristinaSessione(p.oneDriveClientId!))
+      .then(setOdUtente)
+      .catch(() => {});
   }, [p.oneDriveClientId]);
 
   async function odAzione(fn: () => Promise<void>) {
@@ -50,6 +54,11 @@ export function Impostazioni() {
     if (cid !== p.oneDriveClientId) setParam({ oneDriveClientId: cid });
     void odAzione(async () => {
       const u = await (await onedrive()).collega(cid);
+      if (!u) {
+        // Login via redirect: la pagina si sta ricaricando.
+        setOdMsg("Reindirizzamento a Microsoft…");
+        return;
+      }
       setOdUtente(u);
       setOdMsg(`Collegato come ${u}.`);
     });
