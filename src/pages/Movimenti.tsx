@@ -6,6 +6,7 @@ import {
   parseCsv,
   indovinaMappatura,
   righeATransazioni,
+  scartaDuplicati,
   MappaturaCsv,
 } from "../store/io";
 
@@ -21,6 +22,7 @@ export function Movimenti() {
   const [filtroMese, setFiltroMese] = useState("");
   const [filtroCat, setFiltroCat] = useState("");
   const [mostraAI, setMostraAI] = useState(false);
+  const [esitoImport, setEsitoImport] = useState("");
 
   const categorie = dati.categorie.map((c) => c.nome);
 
@@ -81,10 +83,15 @@ export function Movimenti() {
 
   function confermaImport() {
     if (!importCsv) return;
+    const { unici, duplicati } = scartaDuplicati(anteprima, dati.transazioni);
     aggiorna((d) => ({
       ...d,
-      transazioni: [...d.transazioni, ...anteprima],
+      transazioni: [...d.transazioni, ...unici],
     }));
+    setEsitoImport(
+      `Importati ${unici.length} movimenti` +
+        (duplicati > 0 ? ` · ${duplicati} duplicati saltati` : ""),
+    );
     setImportCsv(null);
   }
 
@@ -132,6 +139,7 @@ export function Movimenti() {
           {dati.transazioni.length} movimenti · {nonCategorizzate} da
           categorizzare
         </span>
+        {esitoImport && <span className="chip">{esitoImport}</span>}
       </div>
 
       {importCsv && (

@@ -33,6 +33,38 @@ export function importaJson(testo: string): DatiApp {
   };
 }
 
+// ---------- Deduplica ----------
+
+/** Firma di un movimento per riconoscere i duplicati (data + importi + causale). */
+export function firmaTransazione(t: Transazione): string {
+  return [
+    t.data,
+    t.entrate ?? "",
+    t.uscite ?? "",
+    (t.causale ?? "").trim().toLowerCase(),
+  ].join("|");
+}
+
+/** Rimuove dai `nuovi` i movimenti gia' presenti in `esistenti`. */
+export function scartaDuplicati(
+  nuovi: Transazione[],
+  esistenti: Transazione[],
+): { unici: Transazione[]; duplicati: number } {
+  const viste = new Set(esistenti.map(firmaTransazione));
+  const unici: Transazione[] = [];
+  let duplicati = 0;
+  for (const t of nuovi) {
+    const f = firmaTransazione(t);
+    if (viste.has(f)) {
+      duplicati++;
+    } else {
+      viste.add(f); // evita anche duplicati interni allo stesso file
+      unici.push(t);
+    }
+  }
+  return { unici, duplicati };
+}
+
 // ---------- Parser CSV ----------
 
 /** Rileva il separatore piu' probabile guardando la prima riga. */
