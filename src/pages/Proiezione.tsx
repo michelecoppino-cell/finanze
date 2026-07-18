@@ -217,8 +217,9 @@ export function Proiezione() {
         <p className="muted" style={{ fontSize: 12 }}>
           L'area totale è il patrimonio netto: <b>liquido</b> (cash disponibile,
           già al netto di versamenti e spese grosse), <b>capitale investito</b>{" "}
-          (vincolato) e <b>guadagni</b> (interessi composti). Alla scadenza le
-          tranche tornano nel liquido.
+          (vincolato) e <b>guadagni</b> (interessi composti). Il capitale resta
+          investito fino alla pensione: solo lì le tranche maturano e tornano nel
+          liquido.
         </p>
       </div>
 
@@ -442,7 +443,9 @@ function EditorInvestimenti() {
       <p className="muted" style={{ fontSize: 12 }}>
         Il <b>tasso reale</b> è già al netto dell'inflazione. Per un piano di
         accumulo, compila "Versamento ricorrente" e "Ogni (mesi)" — es. 8500
-        ogni 12 mesi.
+        ogni 12 mesi. La colonna <b>"A"</b> (scadenza) ferma solo i versamenti:
+        il capitale resta comunque investito e continua a rendere fino alla
+        pensione.
       </p>
     </div>
   );
