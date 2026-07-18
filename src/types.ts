@@ -80,6 +80,10 @@ export interface Parametri {
   tassoRendita?: number;
   /** Hash della password del gate (SHA-256 hex). Assente = nessuna password. */
   passwordHash?: string;
+  /** OneDrive: Application (client) ID dell'app registrata su Azure (SPA). */
+  oneDriveClientId?: string;
+  /** Se true, salva il backup su OneDrive automaticamente a ogni modifica. */
+  oneDriveAutoSync?: boolean;
 }
 
 /** L'intero stato dell'app: un solo oggetto JSON esportabile/importabile. */
