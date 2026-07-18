@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useApp } from "../store/AppStore";
 import { Transazione } from "../types";
-import { euro, annoMese, labelMese } from "../util";
+import { euro } from "../util";
 import {
   parseCsv,
   indovinaMappatura,
@@ -9,6 +9,8 @@ import {
   scartaDuplicati,
   MappaturaCsv,
 } from "../store/io";
+
+type Tipo = "" | "entrate" | "uscite" | "trasferimenti";
 
 export function Movimenti() {
   const { dati, aggiorna } = useApp();
@@ -18,39 +20,86 @@ export function Movimenti() {
     mappa: MappaturaCsv;
     conHeader: boolean;
   } | null>(null);
+
+  // Filtri: uno per "colonna" (data, causale, importo) + tipo e categoria.
   const [filtroTesto, setFiltroTesto] = useState("");
-  const [filtroMese, setFiltroMese] = useState("");
+  const [dataDa, setDataDa] = useState("");
+  const [dataA, setDataA] = useState("");
+  const [importoMin, setImportoMin] = useState("");
+  const [importoMax, setImportoMax] = useState("");
+  const [filtroTipo, setFiltroTipo] = useState<Tipo>("");
   const [filtroCat, setFiltroCat] = useState("");
+
   const [mostraAI, setMostraAI] = useState(false);
   const [esitoImport, setEsitoImport] = useState("");
 
   const categorie = dati.categorie.map((c) => c.nome);
 
-  const mesiDisponibili = useMemo(() => {
-    const s = new Set<string>();
-    for (const t of dati.transazioni) s.add(annoMese(t.data));
-    return [...s].sort().reverse();
-  }, [dati.transazioni]);
-
   const filtrate = useMemo(() => {
-    const txt = filtroTesto.toLowerCase();
+    const txt = filtroTesto.toLowerCase().trim();
+    const min = importoMin === "" ? undefined : Number(importoMin);
+    const max = importoMax === "" ? undefined : Number(importoMax);
     return dati.transazioni
       .filter((t) => {
-        if (filtroMese && annoMese(t.data) !== filtroMese) return false;
+        if (dataDa && t.data < dataDa) return false;
+        if (dataA && t.data > dataA) return false;
+        if (filtroTipo === "entrate" && !t.entrate) return false;
+        if (filtroTipo === "uscite" && !(t.uscite && !t.trasferimento))
+          return false;
+        if (filtroTipo === "trasferimenti" && !t.trasferimento) return false;
         if (filtroCat) {
-          if (filtroCat === "__vuote__" && t.categoria) return false;
-          if (filtroCat !== "__vuote__" && t.categoria !== filtroCat)
+          if (filtroCat === "__vuote__" && (t.categoria || t.trasferimento))
             return false;
+          if (
+            filtroCat !== "__vuote__" &&
+            filtroCat !== "__trasf__" &&
+            t.categoria !== filtroCat
+          )
+            return false;
+          if (filtroCat === "__trasf__" && !t.trasferimento) return false;
+        }
+        if (min !== undefined || max !== undefined) {
+          const imp = t.entrate ?? t.uscite ?? 0;
+          if (min !== undefined && imp < min) return false;
+          if (max !== undefined && imp > max) return false;
         }
         if (txt && !(t.causale ?? "").toLowerCase().includes(txt)) return false;
         return true;
       })
       .sort((a, b) => b.data.localeCompare(a.data));
-  }, [dati.transazioni, filtroTesto, filtroMese, filtroCat]);
+  }, [
+    dati.transazioni,
+    filtroTesto,
+    dataDa,
+    dataA,
+    importoMin,
+    importoMax,
+    filtroTipo,
+    filtroCat,
+  ]);
 
   const nonCategorizzate = dati.transazioni.filter(
-    (t) => t.uscite && !t.categoria,
+    (t) => t.uscite && !t.categoria && !t.trasferimento,
   ).length;
+
+  const filtriAttivi =
+    filtroTesto ||
+    dataDa ||
+    dataA ||
+    importoMin ||
+    importoMax ||
+    filtroTipo ||
+    filtroCat;
+
+  function azzeraFiltri() {
+    setFiltroTesto("");
+    setDataDa("");
+    setDataA("");
+    setImportoMin("");
+    setImportoMax("");
+    setFiltroTipo("");
+    setFiltroCat("");
+  }
 
   // ---------- Import CSV ----------
 
@@ -154,30 +203,67 @@ export function Movimenti() {
 
       {mostraAI && <PannelloAI onChiudi={() => setMostraAI(false)} />}
 
-      <div className="riga-azioni" style={{ marginBottom: 12 }}>
+      <div className="filtri">
         <input
-          placeholder="Cerca causale…"
+          placeholder="Cerca nella causale…"
           value={filtroTesto}
           onChange={(e) => setFiltroTesto(e.target.value)}
-          style={{ minWidth: 200 }}
+          style={{ minWidth: 190, flex: "1 1 190px" }}
         />
-        <select value={filtroMese} onChange={(e) => setFiltroMese(e.target.value)}>
-          <option value="">Tutti i mesi</option>
-          {mesiDisponibili.map((m) => (
-            <option key={m} value={m}>
-              {labelMese(m)}
-            </option>
-          ))}
+        <label className="filtro-campo">
+          <span>Da</span>
+          <input
+            type="date"
+            value={dataDa}
+            onChange={(e) => setDataDa(e.target.value)}
+          />
+        </label>
+        <label className="filtro-campo">
+          <span>A</span>
+          <input
+            type="date"
+            value={dataA}
+            onChange={(e) => setDataA(e.target.value)}
+          />
+        </label>
+        <input
+          type="number"
+          placeholder="€ min"
+          value={importoMin}
+          onChange={(e) => setImportoMin(e.target.value)}
+          style={{ width: 92 }}
+        />
+        <input
+          type="number"
+          placeholder="€ max"
+          value={importoMax}
+          onChange={(e) => setImportoMax(e.target.value)}
+          style={{ width: 92 }}
+        />
+        <select
+          value={filtroTipo}
+          onChange={(e) => setFiltroTipo(e.target.value as Tipo)}
+        >
+          <option value="">Tutti i tipi</option>
+          <option value="entrate">Entrate</option>
+          <option value="uscite">Uscite</option>
+          <option value="trasferimenti">Trasferimenti</option>
         </select>
         <select value={filtroCat} onChange={(e) => setFiltroCat(e.target.value)}>
           <option value="">Tutte le categorie</option>
           <option value="__vuote__">Da categorizzare</option>
+          <option value="__trasf__">Trasferimenti (giroconti)</option>
           {categorie.map((c) => (
             <option key={c} value={c}>
               {c}
             </option>
           ))}
         </select>
+        {filtriAttivi && (
+          <button className="secondario" onClick={azzeraFiltri}>
+            Azzera filtri
+          </button>
+        )}
       </div>
 
       {dati.transazioni.length === 0 ? (
@@ -188,6 +274,7 @@ export function Movimenti() {
       ) : (
         <TabellaMovimenti
           righe={filtrate}
+          totale={dati.transazioni.length}
           categorie={categorie}
           onModifica={modifica}
           onElimina={elimina}
@@ -201,11 +288,13 @@ export function Movimenti() {
 
 function TabellaMovimenti({
   righe,
+  totale,
   categorie,
   onModifica,
   onElimina,
 }: {
   righe: Transazione[];
+  totale: number;
   categorie: string[];
   onModifica: (id: string, patch: Partial<Transazione>) => void;
   onElimina: (id: string) => void;
@@ -214,6 +303,11 @@ function TabellaMovimenti({
   const visibili = righe.slice(0, LIMITE);
   return (
     <>
+      <p className="muted" style={{ margin: "0 0 8px" }}>
+        {righe.length === totale
+          ? `${totale} movimenti`
+          : `${righe.length} di ${totale} movimenti (filtrati)`}
+      </p>
       <div className="tabella-wrap">
         <table>
           <thead>
@@ -223,6 +317,9 @@ function TabellaMovimenti({
               <th className="num">Entrate</th>
               <th className="num">Uscite</th>
               <th>Categoria</th>
+              <th title="Giroconto / trasferimento su altro conto (es. PAC)">
+                Giro
+              </th>
               <th>Fatt.</th>
               <th>Tasse</th>
               <th></th>
@@ -230,7 +327,7 @@ function TabellaMovimenti({
           </thead>
           <tbody>
             {visibili.map((t) => (
-              <tr key={t.id}>
+              <tr key={t.id} className={t.trasferimento ? "riga-trasf" : ""}>
                 <td>{t.data}</td>
                 <td title={t.causale}>
                   {(t.causale ?? "").slice(0, 46) || (
@@ -240,25 +337,43 @@ function TabellaMovimenti({
                 <td className="num entrata">
                   {t.entrate ? euro(t.entrate, true) : ""}
                 </td>
-                <td className="num uscita">
+                <td
+                  className={"num " + (t.trasferimento ? "muted" : "uscita")}
+                  title={t.trasferimento ? "Trasferimento (non è una spesa)" : ""}
+                >
                   {t.uscite ? euro(t.uscite, true) : ""}
                 </td>
                 <td>
                   <select
                     value={t.categoria ?? ""}
+                    disabled={t.trasferimento}
                     onChange={(e) =>
                       onModifica(t.id, {
                         categoria: e.target.value || undefined,
                       })
                     }
                   >
-                    <option value="">—</option>
+                    <option value="">{t.trasferimento ? "—" : "—"}</option>
                     {categorie.map((c) => (
                       <option key={c} value={c}>
                         {c}
                       </option>
                     ))}
                   </select>
+                </td>
+                <td>
+                  <input
+                    type="checkbox"
+                    checked={!!t.trasferimento}
+                    title="Segna come trasferimento/giroconto (es. PAC su Scalable)"
+                    onChange={(e) =>
+                      onModifica(t.id, {
+                        trasferimento: e.target.checked || undefined,
+                        // un trasferimento non è una categoria di spesa
+                        categoria: e.target.checked ? undefined : t.categoria,
+                      })
+                    }
+                  />
                 </td>
                 <td>
                   <input
@@ -421,20 +536,12 @@ function PannelloAI({ onChiudi }: { onChiudi: () => void }) {
   const [risultato, setRisultato] = useState("");
   const [esito, setEsito] = useState("");
 
-  const daFare = dati.transazioni.filter((t) => t.uscite && !t.categoria);
-  const categorie = dati.categorie.map((c) => c.nome).join(", ");
+  // I trasferimenti non sono spese: fuori dalla categorizzazione.
+  const daFare = dati.transazioni.filter(
+    (t) => t.uscite && !t.categoria && !t.trasferimento,
+  );
 
-  const prompt =
-    `Categorizza questi movimenti bancari usando SOLO queste categorie: ${categorie}.\n` +
-    `Rispondi con un CSV senza intestazione, una riga per movimento, formato: id;categoria\n` +
-    `Non aggiungere altro testo.\n\n` +
-    `id;data;importo;causale\n` +
-    daFare
-      .map(
-        (t) =>
-          `${t.id};${t.data};${t.uscite};${(t.causale ?? "").replace(/;/g, ",")}`,
-      )
-      .join("\n");
+  const prompt = buildPromptCategorizzazione(dati.categorie, daFare);
 
   function copia() {
     void navigator.clipboard.writeText(prompt);
@@ -443,14 +550,25 @@ function PannelloAI({ onChiudi }: { onChiudi: () => void }) {
 
   function applica() {
     const perId = new Map(dati.transazioni.map((t) => [t.id, t]));
+    const nomiValidi = new Set(dati.categorie.map((c) => c.nome));
     let n = 0;
+    let ignorate = 0;
     const patch = new Map<string, string>();
     for (const riga of risultato.split(/\r?\n/)) {
-      const [id, cat] = riga.split(/[;,\t]/).map((s) => s?.trim());
-      if (id && cat && perId.has(id)) {
-        patch.set(id, cat);
-        n++;
+      const [id, ...resto] = riga.split(/[;,\t]/);
+      const idT = id?.trim();
+      const cat = resto.join(",").trim();
+      if (!idT || !cat || !perId.has(idT)) continue;
+      // Accetta solo categorie esistenti (match case-insensitive).
+      const nome =
+        [...nomiValidi].find((v) => v.toLowerCase() === cat.toLowerCase()) ??
+        null;
+      if (!nome) {
+        ignorate++;
+        continue;
       }
+      patch.set(idT, nome);
+      n++;
     }
     if (n > 0) {
       aggiorna((d) => ({
@@ -460,7 +578,10 @@ function PannelloAI({ onChiudi }: { onChiudi: () => void }) {
         ),
       }));
     }
-    setEsito(`Applicate ${n} categorie.`);
+    setEsito(
+      `Applicate ${n} categorie.` +
+        (ignorate > 0 ? ` ${ignorate} righe ignorate (categoria non valida).` : ""),
+    );
     setRisultato("");
   }
 
@@ -473,8 +594,11 @@ function PannelloAI({ onChiudi }: { onChiudi: () => void }) {
         </button>
       </div>
       <p className="muted">
-        {daFare.length} movimenti da categorizzare. Copia il prompt, incollalo
-        su claude.ai, poi incolla qui sotto il CSV che ottieni.
+        {daFare.length} movimenti da categorizzare. Copia il prompt (contiene le
+        categorie con le loro descrizioni), incollalo su claude.ai, poi incolla
+        qui sotto le righe <code>id;categoria</code> che ottieni. Per migliorare
+        i risultati, arricchisci le descrizioni delle categorie in{" "}
+        <b>Impostazioni</b>.
       </p>
       <div className="riga-azioni">
         <button className="primario" onClick={copia}>
@@ -509,5 +633,45 @@ function PannelloAI({ onChiudi }: { onChiudi: () => void }) {
         {esito && <span className="muted">{esito}</span>}
       </div>
     </div>
+  );
+}
+
+/** Costruisce un prompt strutturato per far categorizzare i movimenti a Claude. */
+function buildPromptCategorizzazione(
+  categorie: { nome: string; descrizione?: string }[],
+  daFare: Transazione[],
+): string {
+  const elencoCategorie = categorie
+    .map((c) => (c.descrizione ? `- ${c.nome}: ${c.descrizione}` : `- ${c.nome}`))
+    .join("\n");
+
+  const righe = daFare
+    .map((t) =>
+      [
+        t.id,
+        t.data,
+        (t.tipologia ?? "").replace(/;/g, ","),
+        t.uscite ?? "",
+        (t.causale ?? "").replace(/;/g, ",").replace(/\s+/g, " ").trim(),
+      ].join(";"),
+    )
+    .join("\n");
+
+  return (
+    `Sei un contabile che classifica movimenti bancari italiani per una contabilità personale. ` +
+    `Assegna a OGNI movimento una sola categoria tra quelle elencate, scegliendo la più probabile ` +
+    `in base a causale, tipologia e importo.\n\n` +
+    `CATEGORIE DISPONIBILI (usa ESATTAMENTE questi nomi, senza varianti né categorie inventate):\n` +
+    `${elencoCategorie}\n\n` +
+    `INDIZI UTILI:\n` +
+    `- La "tipologia" aiuta: pagamento POS/carta = acquisto in negozio; addebito SEPA/RID o bonifico ricorrente = spesso abbonamenti o utenze; prelievo/ATM = Contanti.\n` +
+    `- Nomi noti nella causale indirizzano la categoria (es. Esselunga→Spesa/casa, Q8→Benzina, Netflix→Abbonamenti, Telepass→Auto).\n` +
+    `- Se un movimento non combacia con nessuna categoria, usa "Extra". Se è dubbio ma verificabile, usa "Da fare".\n\n` +
+    `REGOLE DI RISPOSTA:\n` +
+    `- Rispondi SOLO con righe nel formato "id;categoria", una per movimento.\n` +
+    `- Niente intestazione, niente spiegazioni, niente altro testo.\n` +
+    `- Usa esclusivamente i nomi di categoria elencati sopra.\n\n` +
+    `MOVIMENTI DA CATEGORIZZARE (formato: id;data;tipologia;importo;causale):\n` +
+    `${righe}`
   );
 }

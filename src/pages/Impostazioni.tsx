@@ -136,6 +136,14 @@ export function Impostazioni() {
       categorie: d.categorie.filter((c) => c.nome !== nome),
     }));
   }
+  function descriviCat(nome: string, descrizione: string) {
+    aggiorna((d) => ({
+      ...d,
+      categorie: d.categorie.map((c) =>
+        c.nome === nome ? { ...c, descrizione: descrizione || undefined } : c,
+      ),
+    }));
+  }
 
   // ---------- Backup ----------
   function onImport(e: React.ChangeEvent<HTMLInputElement>) {
@@ -311,6 +319,11 @@ export function Impostazioni() {
 
       <div className="card">
         <h3>Categorie</h3>
+        <p className="muted">
+          La <b>descrizione</b> di ogni categoria (esempi, negozi tipici, parole
+          chiave) viene inclusa nel prompt di <b>Categorizza con Claude</b>:
+          più è precisa, migliore è la categorizzazione automatica.
+        </p>
         <div className="riga-azioni" style={{ marginBottom: 12 }}>
           <input
             placeholder="Nuova categoria…"
@@ -322,23 +335,26 @@ export function Impostazioni() {
             Aggiungi
           </button>
         </div>
-        <div className="riga-azioni">
+        <div className="lista-categorie">
           {dati.categorie.map((c) => (
-            <span key={c.nome} className="chip" style={{ padding: "4px 6px 4px 10px" }}>
-              {c.nome}{" "}
-              <button
-                onClick={() => rimuoviCat(c.nome)}
-                style={{
-                  border: "none",
-                  background: "transparent",
-                  color: "var(--muted)",
-                  padding: "0 2px",
-                }}
-                title="Rimuovi"
-              >
-                ✕
-              </button>
-            </span>
+            <div key={c.nome} className="cat-riga">
+              <div className="cat-nome">
+                {c.nome}
+                <button
+                  onClick={() => rimuoviCat(c.nome)}
+                  title="Rimuovi categoria"
+                  className="cat-rimuovi"
+                >
+                  ✕
+                </button>
+              </div>
+              <input
+                className="cat-descr"
+                placeholder="Descrizione / esempi per la categorizzazione…"
+                value={c.descrizione ?? ""}
+                onChange={(e) => descriviCat(c.nome, e.target.value)}
+              />
+            </div>
           ))}
         </div>
       </div>

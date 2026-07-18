@@ -10,6 +10,7 @@ export interface RigaMese {
   totaleUscite: number;
   totaleEntrate: number;
   tasse: number; // uscite con flag tasse
+  trasferimenti: number; // uscite con flag trasferimento (giroconti/investimenti)
 }
 
 export interface AnalisiRisultato {
@@ -19,6 +20,7 @@ export interface AnalisiRisultato {
   totaleUscite: number;
   totaleEntrate: number;
   totaleTasse: number;
+  totaleTrasferimenti: number;
 }
 
 const SENZA_CATEGORIA = "(non categorizzato)";
@@ -53,6 +55,7 @@ export function analizza(
       totaleUscite: 0,
       totaleEntrate: 0,
       totaleTasse: 0,
+      totaleTrasferimenti: 0,
     };
   }
 
@@ -61,6 +64,7 @@ export function analizza(
   let totaleUscite = 0;
   let totaleEntrate = 0;
   let totaleTasse = 0;
+  let totaleTrasferimenti = 0;
   const categorieUsate = new Set<string>(categorieNote);
 
   let minMese: string | undefined;
@@ -79,8 +83,19 @@ export function analizza(
         totaleUscite: 0,
         totaleEntrate: 0,
         tasse: 0,
+        trasferimenti: 0,
       };
       perMese.set(mese, riga);
+    }
+
+    // I trasferimenti (giroconti/PAC) non sono spese: non entrano nelle
+    // categorie ne' nel totale uscite, ma vengono tracciati a parte.
+    if (t.trasferimento) {
+      if (t.uscite) {
+        riga.trasferimenti += t.uscite;
+        totaleTrasferimenti += t.uscite;
+      }
+      continue;
     }
 
     const cat = t.categoria?.trim() || SENZA_CATEGORIA;
@@ -110,6 +125,7 @@ export function analizza(
         totaleUscite: 0,
         totaleEntrate: 0,
         tasse: 0,
+        trasferimenti: 0,
       },
   );
 
@@ -130,6 +146,7 @@ export function analizza(
     totaleUscite,
     totaleEntrate,
     totaleTasse,
+    totaleTrasferimenti,
   };
 }
 
@@ -140,7 +157,14 @@ export function perAnno(mesi: RigaMese[]): RigaMese[] {
     const anno = r.mese.slice(0, 4);
     let a = map.get(anno);
     if (!a) {
-      a = { mese: anno, perCategoria: {}, totaleUscite: 0, totaleEntrate: 0, tasse: 0 };
+      a = {
+        mese: anno,
+        perCategoria: {},
+        totaleUscite: 0,
+        totaleEntrate: 0,
+        tasse: 0,
+        trasferimenti: 0,
+      };
       map.set(anno, a);
     }
     for (const [cat, v] of Object.entries(r.perCategoria)) {
@@ -149,6 +173,7 @@ export function perAnno(mesi: RigaMese[]): RigaMese[] {
     a.totaleUscite += r.totaleUscite;
     a.totaleEntrate += r.totaleEntrate;
     a.tasse += r.tasse;
+    a.trasferimenti += r.trasferimenti;
   }
   return [...map.values()].sort((x, y) => x.mese.localeCompare(y.mese));
 }
