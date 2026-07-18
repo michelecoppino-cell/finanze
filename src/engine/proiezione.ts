@@ -10,7 +10,7 @@
 //                  + risparmi mensili (netto - spesa)
 //                  - spese grosse
 //                  - versamenti negli investimenti (quando escono dal conto)
-//                  + tranche che maturano (capitale + interessi tornano liquidi)
+//                  + tranche che maturano (a pensione: capitale + interessi tornano liquidi)
 //   investito(t) = capitale attualmente vincolato negli investimenti attivi
 //   guadagni(t)  = interessi COMPOSTI maturati (non ancora realizzati)
 //   patrimonio   = liquido + investito + guadagni
@@ -19,6 +19,12 @@
 // considerato fuori dal saldo liquido di partenza (i trasferimenti verso i
 // depositi sono gia' usciti dal conto). I versamenti FUTURI, invece, vengono
 // dedotti dal liquido quando avvengono.
+//
+// Il capitale investito NON rientra nel liquido alla scadenza (dataFine): quella
+// data ferma solo i versamenti del PAC. Il capitale resta investito e continua a
+// rendere fino alla pensione, quando l'intera tranche matura e torna liquida
+// (cosi' si "realizza" e si tassa solo alla fine). Se dataFine cade dopo la
+// pensione, la maturazione avviene a dataFine.
 
 import {
   AnnoTasse,
@@ -87,11 +93,13 @@ function statoInvestimento(
   inv: Investimento,
   contributi: Contributo[],
   t: Date,
+  maturita: Date,
 ): { capitale: number; guadagni: number } {
   const inizio = new Date(inv.dataInizio + "T00:00:00");
-  const fine = new Date(inv.dataFine + "T00:00:00");
-  // Attiva finche' non entra nel mese di scadenza (poi e' maturata -> liquido).
-  if (t < inizio || t >= inizioMese(fine)) return { capitale: 0, guadagni: 0 };
+  // Attiva finche' non entra nel mese di maturazione (poi e' liquida). Il
+  // capitale resta investito e continua a rendere fino alla maturazione, che
+  // non avviene mai prima della pensione (vedi calcolaProiezione).
+  if (t < inizio || t >= inizioMese(maturita)) return { capitale: 0, guadagni: 0 };
   let capitale = 0;
   let guadagni = 0;
   for (const c of contributi) {
@@ -103,12 +111,15 @@ function statoInvestimento(
   return { capitale, guadagni };
 }
 
-/** Valore a scadenza di una tranche (capitale + interessi composti fino a fine). */
-function valoreMaturato(inv: Investimento, contributi: Contributo[]): number {
-  const fine = new Date(inv.dataFine + "T00:00:00");
+/** Valore a maturazione di una tranche (capitale + interessi composti fino a `maturita`). */
+function valoreMaturato(
+  inv: Investimento,
+  contributi: Contributo[],
+  maturita: Date,
+): number {
   let v = 0;
   for (const c of contributi) {
-    const anni = anniTra(c.data, fine);
+    const anni = anniTra(c.data, maturita);
     v += c.importo * Math.pow(1 + inv.interesse, Math.max(0, anni));
   }
   return v;
@@ -133,6 +144,7 @@ export function calcolaProiezione(
 
   // Precalcolo contributi, deduzioni dal liquido e maturazioni per mese.
   const contributiPer = new Map<string, Contributo[]>();
+  const maturitaPer = new Map<string, Date>();
   const deduzioni = new Map<string, number>();
   const maturazioni = new Map<string, number>();
   let orizzonte = new Date(dataPensione);
@@ -141,7 +153,13 @@ export function calcolaProiezione(
     const contribs = contributiDi(inv);
     contributiPer.set(inv.id, contribs);
     const fine = new Date(inv.dataFine + "T00:00:00");
-    if (fine > orizzonte) orizzonte = fine;
+    // Il capitale non torna mai liquido prima della pensione: la scadenza
+    // (dataFine) ferma solo i versamenti del PAC, mentre il capitale resta
+    // investito e continua a rendere fino alla pensione (o fino a dataFine se
+    // questa e' successiva). Cosi' si "realizza" e si tassa solo alla fine.
+    const maturita = fine > dataPensione ? fine : dataPensione;
+    maturitaPer.set(inv.id, maturita);
+    if (maturita > orizzonte) orizzonte = maturita;
     // Versamenti futuri: escono dal liquido nel loro mese.
     for (const c of contribs) {
       if (c.data >= startProj) {
@@ -149,9 +167,12 @@ export function calcolaProiezione(
         deduzioni.set(k, (deduzioni.get(k) ?? 0) + c.importo);
       }
     }
-    // Maturazione: capitale + interessi tornano liquidi nel mese di scadenza.
-    const km = chiaveMese(fine);
-    maturazioni.set(km, (maturazioni.get(km) ?? 0) + valoreMaturato(inv, contribs));
+    // Maturazione: capitale + interessi tornano liquidi nel mese di maturazione.
+    const km = chiaveMese(maturita);
+    maturazioni.set(
+      km,
+      (maturazioni.get(km) ?? 0) + valoreMaturato(inv, contribs, maturita),
+    );
   }
 
   const eventiOrd = [...eventi].sort((a, b) =>
@@ -161,6 +182,16 @@ export function calcolaProiezione(
     const d = new Date((e.dataFine ?? e.dataInizio) + "T00:00:00");
     if (d > orizzonte) orizzonte = d;
   });
+
+  // Assicura che la proiezione copra il mese successivo alla pensione, cosi' il
+  // "capitale a pensione" viene sempre registrato anche quando non ci sono
+  // eventi futuri che estendono l'orizzonte oltre quella data.
+  const dopoPensione = new Date(
+    dataPensione.getFullYear(),
+    dataPensione.getMonth() + 1,
+    1,
+  );
+  if (dopoPensione > orizzonte) orizzonte = dopoPensione;
 
   function eventoAttivo(mese: Date): EventoFuturo | undefined {
     let att: EventoFuturo | undefined;
@@ -204,7 +235,12 @@ export function calcolaProiezione(
     let investito = 0;
     let guadagni = 0;
     for (const inv of investimenti) {
-      const s = statoInvestimento(inv, contributiPer.get(inv.id)!, cursore);
+      const s = statoInvestimento(
+        inv,
+        contributiPer.get(inv.id)!,
+        cursore,
+        maturitaPer.get(inv.id)!,
+      );
       investito += s.capitale;
       guadagni += s.guadagni;
     }
