@@ -1,0 +1,31 @@
+# Dati personali (mai in git)
+*.xlsx
+*.xls
+*.xlsm
+ContoUPD.xlsx
+finanze.json
+*.local.json
+
+# Dipendenze / build
+node_modules/
+dist/
+dist-ssr/
+.vite/
+*.tsbuildinfo
+
+# Log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
