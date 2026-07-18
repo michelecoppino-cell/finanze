@@ -11,7 +11,7 @@ import {
 } from "recharts";
 import { useApp } from "../store/AppStore";
 import { analizza, perAnno, RigaMese } from "../engine/analisi";
-import { euro, labelMese } from "../util";
+import { euro, labelMese, annoMese } from "../util";
 
 // Palette categorica (neutra, leggibile in chiaro e scuro).
 const PALETTE = [
@@ -23,10 +23,32 @@ const PALETTE = [
 export function AnalisiSpese() {
   const { dati } = useApp();
   const [vista, setVista] = useState<"mese" | "anno">("mese");
+  const [da, setDa] = useState("");
+  const [a, setA] = useState("");
+
+  // Estremi disponibili (yyyy-mm) per popolare i selettori e i preset.
+  const mesi = useMemo(() => {
+    const s = new Set<string>();
+    for (const t of dati.transazioni) s.add(annoMese(t.data));
+    return [...s].sort();
+  }, [dati.transazioni]);
+  const primoMese = mesi[0] ?? "";
+  const ultimoMese = mesi[mesi.length - 1] ?? "";
+
+  // Applica il range temporale (inclusivo) prima dell'analisi.
+  const transazioniFiltrate = useMemo(() => {
+    if (!da && !a) return dati.transazioni;
+    return dati.transazioni.filter((t) => {
+      const m = annoMese(t.data);
+      if (da && m < da) return false;
+      if (a && m > a) return false;
+      return true;
+    });
+  }, [dati.transazioni, da, a]);
 
   const analisi = useMemo(
-    () => analizza(dati.transazioni, dati.categorie.map((c) => c.nome)),
-    [dati.transazioni, dati.categorie],
+    () => analizza(transazioniFiltrate, dati.categorie.map((c) => c.nome)),
+    [transazioniFiltrate, dati.categorie],
   );
 
   const righe: RigaMese[] =
@@ -62,8 +84,79 @@ export function AnalisiSpese() {
 
   const saldoNetto = analisi.totaleEntrate - analisi.totaleUscite;
 
+  // Preset di range comodi.
+  const annoCorrente = new Date().getFullYear();
+  function preset(nome: "tutto" | "annoCorrente" | "ultimi12" | "annoScorso") {
+    if (nome === "tutto") {
+      setDa("");
+      setA("");
+    } else if (nome === "annoCorrente") {
+      setDa(`${annoCorrente}-01`);
+      setA(`${annoCorrente}-12`);
+    } else if (nome === "annoScorso") {
+      setDa(`${annoCorrente - 1}-01`);
+      setA(`${annoCorrente - 1}-12`);
+    } else if (nome === "ultimi12") {
+      const d = new Date();
+      d.setMonth(d.getMonth() - 11);
+      setDa(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+      setA(`${annoCorrente}-${String(new Date().getMonth() + 1).padStart(2, "0")}`);
+    }
+  }
+
+  const rangeAttivo = !!(da || a);
+
   return (
     <>
+      <div className="card">
+        <div className="riga-azioni" style={{ justifyContent: "space-between" }}>
+          <h3 style={{ margin: 0 }}>Periodo analizzato</h3>
+          <div className="riga-azioni" style={{ gap: 6 }}>
+            <button className="secondario" onClick={() => preset("tutto")}>
+              Tutto
+            </button>
+            <button className="secondario" onClick={() => preset("ultimi12")}>
+              Ultimi 12 mesi
+            </button>
+            <button className="secondario" onClick={() => preset("annoCorrente")}>
+              {annoCorrente}
+            </button>
+            <button className="secondario" onClick={() => preset("annoScorso")}>
+              {annoCorrente - 1}
+            </button>
+          </div>
+        </div>
+        <div className="riga-azioni" style={{ marginTop: 10 }}>
+          <label className="filtro-campo">
+            <span>Da</span>
+            <input
+              type="month"
+              value={da}
+              min={primoMese}
+              max={ultimoMese}
+              onChange={(e) => setDa(e.target.value)}
+            />
+          </label>
+          <label className="filtro-campo">
+            <span>A</span>
+            <input
+              type="month"
+              value={a}
+              min={primoMese}
+              max={ultimoMese}
+              onChange={(e) => setA(e.target.value)}
+            />
+          </label>
+          <span className="muted">
+            {rangeAttivo
+              ? `${da ? labelMese(da + "-01") : labelMese(primoMese + "-01")} → ${
+                  a ? labelMese(a + "-01") : labelMese(ultimoMese + "-01")
+                }`
+              : "Tutto il periodo disponibile"}
+          </span>
+        </div>
+      </div>
+
       <div className="stat-griglia">
         <div className="stat">
           <div className="etichetta">Entrate totali</div>
@@ -77,6 +170,15 @@ export function AnalisiSpese() {
           <div className="etichetta">di cui tasse</div>
           <div className="valore">{euro(analisi.totaleTasse)}</div>
         </div>
+        {analisi.totaleTrasferimenti > 0 && (
+          <div className="stat">
+            <div className="etichetta">Trasferito a investimenti</div>
+            <div className="valore">{euro(analisi.totaleTrasferimenti)}</div>
+            <div className="muted" style={{ fontSize: 12 }}>
+              giroconti/PAC, non spese
+            </div>
+          </div>
+        )}
         <div className="stat">
           <div className="etichetta">Saldo netto</div>
           <div className={"valore " + (saldoNetto >= 0 ? "entrata" : "uscita")}>
@@ -97,7 +199,12 @@ export function AnalisiSpese() {
       </div>
 
       <div className="card">
-        <h3>Spese per categoria</h3>
+        <h3>
+          Spese per categoria{" "}
+          <span className="muted" style={{ fontWeight: 400, fontSize: 13 }}>
+            · {rangeAttivo ? "periodo selezionato" : "tutto il periodo"}
+          </span>
+        </h3>
         <div style={{ width: "100%", height: 300 }}>
           <ResponsiveContainer>
             <BarChart

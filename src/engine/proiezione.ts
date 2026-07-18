@@ -137,6 +137,13 @@ export function calcolaProiezione(
   const startValore = saldo.ultimo?.potereAcquisto ?? par.saldoInizialeValore ?? 0;
   const startProj = new Date(startIso + "T00:00:00");
 
+  // Capitale gia' trasferito su altri conti/investimenti (giroconti/PAC): non e'
+  // nel liquido di partenza (e' gia' uscito dal conto) ma fa parte del
+  // patrimonio. Lo portiamo avanti come base di "investito" costante, cosi' non
+  // sparisce dalla proiezione. Modellare la sua crescita e' compito delle
+  // tranche in "Investimenti".
+  const investitoBase = saldo.ultimo?.investito ?? 0;
+
   const nascita = new Date(par.dataNascita + "T00:00:00");
   const etaPensione = par.etaPensione ?? 67;
   const dataPensione = new Date(nascita);
@@ -232,7 +239,7 @@ export function calcolaProiezione(
     liquido += maturazioni.get(k) ?? 0;
 
     // Stock investito e guadagni.
-    let investito = 0;
+    let investito = investitoBase;
     let guadagni = 0;
     for (const inv of investimenti) {
       const s = statoInvestimento(

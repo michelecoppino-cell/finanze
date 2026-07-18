@@ -112,9 +112,9 @@ src/
   engine/
     saldo.ts          saldo giornaliero: grezzo, netto tasse, potere d'acquisto
   pages/
-    Movimenti.tsx     import CSV, tabella, categorie, prompt Claude
-    AnalisiSpese.tsx  tabella + grafico spese
-    Saldo.tsx         saldo reale (grafico a linee)
+    Movimenti.tsx     import CSV, tabella, filtri, trasferimenti, prompt Claude
+    AnalisiSpese.tsx  tabella + grafico spese (con range temporale)
+    Saldo.tsx         saldo reale: grezzo, netto tasse, patrimonio totale
     Tasse.tsx         dati fiscali per anno (editabili)
     Proiezione.tsx    (Fasi 4-5) proiezione futura
     Impostazioni.tsx  parametri, categorie, password, backup
