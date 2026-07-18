@@ -53,12 +53,16 @@ export interface EventoFuturo {
 /** Tranche di investimento (foglio "Investimenti"). */
 export interface Investimento {
   id: string;
+  descrizione?: string;
   dataInizio: string; // ISO
   dataFine: string; // ISO
-  capitale: number; // D
+  capitale: number; // D - capitale iniziale
   /** Tasso annuo (reale, gia' al netto di inflazione/tasse a seconda della scelta). */
   interesse: number; // E
-  fase?: string;
+  /** Piano di accumulo: importo aggiunto periodicamente (opzionale). */
+  versamentoPeriodico?: number;
+  /** Ogni quanti mesi si aggiunge il versamento (es. 12 = ogni anno). */
+  frequenzaMesi?: number;
 }
 
 /** Parametri globali editabili. */
@@ -70,6 +74,10 @@ export interface Parametri {
   dataNascita: string;
   /** Inflazione annua usata per portare tutto in potere d'acquisto reale. */
   inflazione: number;
+  /** Eta' a cui stimare il capitale per la pensione integrativa (default 67). */
+  etaPensione?: number;
+  /** Tasso di prelievo annuo per stimare la rendita integrativa (default 0.04 = 4%). */
+  tassoRendita?: number;
   /** Hash della password del gate (SHA-256 hex). Assente = nessuna password. */
   passwordHash?: string;
 }
@@ -116,6 +124,8 @@ export function datiVuoti(): DatiApp {
       saldoInizialeValore: 6400,
       dataNascita: "1994-03-22",
       inflazione: 0.02,
+      etaPensione: 67,
+      tassoRendita: 0.04,
     },
   };
 }
