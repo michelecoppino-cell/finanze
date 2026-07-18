@@ -25,6 +25,23 @@ let msalPromise: Promise<PublicClientApplication> | null = null;
 let clientIdCorrente: string | null = null;
 
 /**
+ * True se questa pagina sta girando DENTRO la popup di login aperta da MSAL.
+ * In quel caso non dobbiamo toccare MSAL: e' la finestra che ha aperto la popup
+ * a leggere la risposta e chiudere la popup. Se invece elaborassimo qui la
+ * risposta (handleRedirectPromise), la "ruberemmo" alla finestra principale,
+ * causando timed_out di la' e no_token_request_cache_error di qua.
+ */
+function dentroPopupMsal(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    !!window.opener &&
+    window.opener !== window &&
+    typeof window.name === "string" &&
+    window.name.startsWith("msal")
+  );
+}
+
+/**
  * Crea (una sola volta) l'istanza MSAL per il client id dato, la inizializza e
  * completa un eventuale login tornato via redirect. La promise e' memoizzata per
  * evitare doppie inizializzazioni in caso di chiamate concorrenti.
@@ -43,10 +60,12 @@ function getMsal(clientId: string): Promise<PublicClientApplication> {
       cache: { cacheLocation: "localStorage" },
     });
     await istanza.initialize();
-    // Se torniamo da un login via redirect, completa il flusso e imposta
-    // l'account attivo.
-    const risposta = await istanza.handleRedirectPromise();
-    if (risposta?.account) istanza.setActiveAccount(risposta.account);
+    // Completa un login tornato via redirect SOLO se siamo la finestra normale,
+    // mai dentro la popup di MSAL (vedi dentroPopupMsal).
+    if (!dentroPopupMsal()) {
+      const risposta = await istanza.handleRedirectPromise();
+      if (risposta?.account) istanza.setActiveAccount(risposta.account);
+    }
     msal = istanza;
     return istanza;
   })();
@@ -84,6 +103,9 @@ export function accountCollegato(): string | null {
  * riparte anche dopo un reload della pagina. Ritorna il nome account o null.
  */
 export async function ripristinaSessione(clientId: string): Promise<string | null> {
+  // Dentro la popup di login non facciamo nulla: lasciamo che la finestra
+  // principale completi il flusso e chiuda la popup.
+  if (dentroPopupMsal()) return null;
   const m = await getMsal(clientId);
   const a = accountAttivo(m);
   if (a) m.setActiveAccount(a);
