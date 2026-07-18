@@ -5,15 +5,23 @@ import { useState } from "react";
 import { Movimenti } from "./pages/Movimenti";
 import { AnalisiSpese } from "./pages/AnalisiSpese";
 import { Saldo } from "./pages/Saldo";
+import { Tasse } from "./pages/Tasse";
 import { Proiezione } from "./pages/Proiezione";
 import { Impostazioni } from "./pages/Impostazioni";
 
-type Pagina = "movimenti" | "analisi" | "saldo" | "proiezione" | "impostazioni";
+type Pagina =
+  | "movimenti"
+  | "analisi"
+  | "saldo"
+  | "tasse"
+  | "proiezione"
+  | "impostazioni";
 
 const VOCI: { id: Pagina; nome: string; icona: string }[] = [
   { id: "movimenti", nome: "Movimenti", icona: "≡" },
   { id: "analisi", nome: "Analisi spese", icona: "▤" },
   { id: "saldo", nome: "Saldo reale", icona: "◈" },
+  { id: "tasse", nome: "Tasse", icona: "%" },
   { id: "proiezione", nome: "Proiezione", icona: "◹" },
   { id: "impostazioni", nome: "Impostazioni", icona: "⚙" },
 ];
@@ -61,6 +69,7 @@ export function App() {
           {pagina === "movimenti" && <Movimenti />}
           {pagina === "analisi" && <AnalisiSpese />}
           {pagina === "saldo" && <Saldo />}
+          {pagina === "tasse" && <Tasse />}
           {pagina === "proiezione" && <Proiezione />}
           {pagina === "impostazioni" && <Impostazioni />}
         </main>
