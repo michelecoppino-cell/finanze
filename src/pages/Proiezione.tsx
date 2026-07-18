@@ -15,8 +15,9 @@ import { EventoFuturo, Investimento } from "../types";
 import { calcolaProiezione, campionaMesi } from "../engine/proiezione";
 import { euro, uid } from "../util";
 
-const COL_ACC = "#4c78a8";
-const COL_INV = "#54a24b";
+const COL_LIQ = "#4c78a8"; // liquido
+const COL_CAP = "#8a94a6"; // capitale investito
+const COL_GAIN = "#54a24b"; // guadagni
 
 export function Proiezione() {
   const { dati, aggiorna } = useApp();
@@ -66,6 +67,13 @@ export function Proiezione() {
     <>
       <div className="stat-griglia">
         <div className="stat">
+          <div className="etichetta">Patrimonio netto oggi</div>
+          <div className="valore">{euro(ris.patrimonioOggi)}</div>
+          <div className="muted" style={{ fontSize: 12 }}>
+            liquido + investimenti
+          </div>
+        </div>
+        <div className="stat">
           <div className="etichetta">Capitale a {p.etaPensione ?? 67} anni</div>
           <div className="valore">{euro(ris.capitalePensione)}</div>
           <div className="muted" style={{ fontSize: 12 }}>
@@ -74,20 +82,26 @@ export function Proiezione() {
         </div>
         <div className="stat">
           <div className="etichetta">Rendita integrativa /anno</div>
-          <div className="valore" style={{ color: COL_INV }}>
+          <div className="valore" style={{ color: COL_GAIN }}>
             {euro(ris.renditaAnnua)}
           </div>
           <div className="muted" style={{ fontSize: 12 }}>
-            al {((p.tassoRendita ?? 0.04) * 100).toFixed(1)}% annuo
-          </div>
-        </div>
-        <div className="stat">
-          <div className="etichetta">Rendita integrativa /mese</div>
-          <div className="valore" style={{ color: COL_INV }}>
-            {euro(ris.renditaMensile)}
+            ~{euro(ris.renditaMensile)}/mese · stima lorda al{" "}
+            {((p.tassoRendita ?? 0.035) * 100).toFixed(1)}%
           </div>
         </div>
       </div>
+
+      {ris.liquiditaMinima !== undefined && ris.liquiditaMinima < 0 && (
+        <div className="card" style={{ borderColor: "var(--uscita)" }}>
+          <p style={{ margin: 0 }}>
+            ⚠️ In alcuni mesi la <b>liquidità scende sotto zero</b> (minimo{" "}
+            {euro(ris.liquiditaMinima)}): con queste ipotesi lo scenario non si
+            autofinanzia — i versamenti negli investimenti o le spese grosse
+            superano i risparmi disponibili.
+          </p>
+        </div>
+      )}
 
       <div className="card">
         <div className="form-griglia" style={{ marginBottom: 4 }}>
@@ -100,11 +114,11 @@ export function Proiezione() {
             />
           </label>
           <label className="campo">
-            Tasso rendita (es. 0.04 = 4%)
+            Tasso rendita (es. 0.035 = 3,5%)
             <input
               type="number"
               step="0.005"
-              value={p.tassoRendita ?? 0.04}
+              value={p.tassoRendita ?? 0.035}
               onChange={(e) => setParam({ tassoRendita: Number(e.target.value) })}
             />
           </label>
@@ -172,29 +186,39 @@ export function Proiezione() {
               )}
               <Area
                 type="monotone"
-                dataKey="accantonato"
-                name="Liquidità accantonata"
+                dataKey="liquido"
+                name="Liquido"
                 stackId="1"
-                stroke={COL_ACC}
-                fill={COL_ACC}
+                stroke={COL_LIQ}
+                fill={COL_LIQ}
                 fillOpacity={0.5}
               />
               <Area
                 type="monotone"
-                dataKey="guadagniInvestimenti"
+                dataKey="investito"
+                name="Capitale investito"
+                stackId="1"
+                stroke={COL_CAP}
+                fill={COL_CAP}
+                fillOpacity={0.5}
+              />
+              <Area
+                type="monotone"
+                dataKey="guadagni"
                 name="Guadagni investimenti"
                 stackId="1"
-                stroke={COL_INV}
-                fill={COL_INV}
+                stroke={COL_GAIN}
+                fill={COL_GAIN}
                 fillOpacity={0.5}
               />
             </AreaChart>
           </ResponsiveContainer>
         </div>
         <p className="muted" style={{ fontSize: 12 }}>
-          L'area totale è il patrimonio netto stimato (liquidità + guadagni degli
-          investimenti). Le spese grosse (casa, auto…) sono già sottratte dove
-          cadono.
+          L'area totale è il patrimonio netto: <b>liquido</b> (cash disponibile,
+          già al netto di versamenti e spese grosse), <b>capitale investito</b>{" "}
+          (vincolato) e <b>guadagni</b> (interessi composti). Alla scadenza le
+          tranche tornano nel liquido.
         </p>
       </div>
 

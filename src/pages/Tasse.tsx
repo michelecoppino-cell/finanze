@@ -25,8 +25,55 @@ export function Tasse() {
 
   const numOr = (v: number | undefined) => (v === undefined ? "" : v);
 
+  // Accantonamento consigliato: dall'anno piu' recente con dati.
+  const ultimo = righe
+    .map((t) => {
+      const tot =
+        (t.inarcassa ?? 0) + (t.irpef ?? 0) + (t.aggiuntivi ?? 0) ||
+        (t.fatturato && t.tassazione ? t.fatturato * t.tassazione : 0);
+      return { anno: t.anno, tot, fatturato: t.fatturato };
+    })
+    .filter((x) => x.tot > 0)
+    .pop();
+  const aliquotaEff =
+    ultimo && ultimo.fatturato ? ultimo.tot / ultimo.fatturato : undefined;
+
   return (
     <>
+      {ultimo && (
+        <div className="stat-griglia">
+          <div className="stat">
+            <div className="etichetta">Accantona ogni mese</div>
+            <div className="valore">{euro(ultimo.tot / 12)}</div>
+            <div className="muted" style={{ fontSize: 12 }}>
+              per coprire le tasse (base {ultimo.anno})
+            </div>
+          </div>
+          <div className="stat">
+            <div className="etichetta">Aliquota effettiva</div>
+            <div className="valore">
+              {aliquotaEff !== undefined
+                ? (aliquotaEff * 100).toFixed(1) + "%"
+                : "—"}
+            </div>
+            <div className="muted" style={{ fontSize: 12 }}>
+              tasse / fatturato {ultimo.anno}
+            </div>
+          </div>
+          <div className="stat">
+            <div className="etichetta">Accantona per ogni €</div>
+            <div className="valore">
+              {aliquotaEff !== undefined
+                ? (aliquotaEff * 100).toFixed(0) + " cent"
+                : "—"}
+            </div>
+            <div className="muted" style={{ fontSize: 12 }}>
+              su ogni € fatturato
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="card">
         <h3>Dati fiscali per anno</h3>
         <p className="muted" style={{ marginTop: -4 }}>

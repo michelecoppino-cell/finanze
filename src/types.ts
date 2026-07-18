@@ -125,7 +125,7 @@ export function datiVuoti(): DatiApp {
       dataNascita: "1994-03-22",
       inflazione: 0.02,
       etaPensione: 67,
-      tassoRendita: 0.04,
+      tassoRendita: 0.035,
     },
   };
 }
