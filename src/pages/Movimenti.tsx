@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useApp } from "../store/AppStore";
 import { Transazione } from "../types";
-import { euro, numero, parseNumeroIt, uid } from "../util";
+import { euro, numero, parseNumeroIt, uid, mappaColoriConto } from "../util";
 import {
   parseCsv,
   indovinaMappatura,
@@ -120,11 +120,6 @@ const AZIONI_BULK: { id: string; nome: string; patch: Partial<Transazione> }[] =
   { id: "fatt-no", nome: "Togli fattura", patch: { fattura: undefined } },
   { id: "tasse-si", nome: "Segna come tasse", patch: { tasse: true } },
   { id: "tasse-no", nome: "Togli tasse", patch: { tasse: undefined } },
-];
-
-/** Palette dei badge conto (assegnata per ordine alfabetico dei conti). */
-const COLORI_CONTO = [
-  "#4c78a8", "#f58518", "#54a24b", "#b279a2", "#e45756", "#72b7b2",
 ];
 
 // Riconoscimento della banca dal tracciato del CSV: ogni banca esporta con le
@@ -261,11 +256,7 @@ export function Movimenti() {
     for (const t of dati.transazioni) if (t.conto) s.add(t.conto);
     return [...s].sort();
   }, [dati.transazioni]);
-  const coloreConto = useMemo(() => {
-    const m: Record<string, string> = {};
-    conti.forEach((c, i) => (m[c] = COLORI_CONTO[i % COLORI_CONTO.length]));
-    return m;
-  }, [conti]);
+  const coloreConto = useMemo(() => mappaColoriConto(conti), [conti]);
 
   // Valori proponibili nei filtri "a lista" delle intestazioni colonna (come
   // il filtro automatico di Excel: elenco dei valori con checkbox).

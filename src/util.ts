@@ -127,3 +127,15 @@ export function labelMese(annoMese: string): string {
 export function annoMese(iso: string): string {
   return iso.slice(0, 7);
 }
+
+/** Palette dei badge/linee per conto (assegnata per ordine alfabetico dei conti). */
+export const COLORI_CONTO = [
+  "#4c78a8", "#f58518", "#54a24b", "#b279a2", "#e45756", "#72b7b2",
+];
+
+/** Mappa nome conto -> colore, stabile in base all'ordine alfabetico. */
+export function mappaColoriConto(conti: string[]): Record<string, string> {
+  const m: Record<string, string> = {};
+  conti.forEach((c, i) => (m[c] = COLORI_CONTO[i % COLORI_CONTO.length]));
+  return m;
+}
