@@ -12,6 +12,7 @@ import {
 import { useApp } from "../store/AppStore";
 import { analizza, perAnno, RigaMese } from "../engine/analisi";
 import { euro, labelMese, annoMese } from "../util";
+import { Info } from "../components/Info";
 
 // Palette categorica (neutra, leggibile in chiaro e scuro).
 const PALETTE = [
@@ -167,12 +168,25 @@ export function AnalisiSpese() {
           <div className="valore uscita">{euro(analisi.totaleUscite)}</div>
         </div>
         <div className="stat">
-          <div className="etichetta">di cui tasse</div>
+          <div className="etichetta">
+            di cui tasse
+            <Info>
+              Somma delle uscite con il flag <b>Tasse</b> nel periodo
+              selezionato (già comprese nelle uscite totali).
+            </Info>
+          </div>
           <div className="valore">{euro(analisi.totaleTasse)}</div>
         </div>
         {analisi.totaleTrasferimenti > 0 && (
           <div className="stat">
-            <div className="etichetta">Trasferito a investimenti</div>
+            <div className="etichetta">
+              Trasferito a investimenti
+              <Info>
+                Somma delle uscite marcate <b>Giro</b> nel periodo: giroconti e
+                PAC. Non contano come spese (sono esclusi dalle uscite totali e
+                dalle categorie).
+              </Info>
+            </div>
             <div className="valore">{euro(analisi.totaleTrasferimenti)}</div>
             <div className="muted" style={{ fontSize: 12 }}>
               giroconti/PAC, non spese
@@ -180,13 +194,34 @@ export function AnalisiSpese() {
           </div>
         )}
         <div className="stat">
-          <div className="etichetta">Saldo netto</div>
+          <div className="etichetta">
+            Saldo netto
+            <Info>
+              <b>Saldo netto</b> = entrate − uscite del periodo (trasferimenti
+              e voci annullate esclusi).
+              <br />
+              {euro(analisi.totaleEntrate, true)} −{" "}
+              {euro(analisi.totaleUscite, true)} = <b>{euro(saldoNetto, true)}</b>
+            </Info>
+          </div>
           <div className={"valore " + (saldoNetto >= 0 ? "entrata" : "uscita")}>
             {euro(saldoNetto)}
           </div>
         </div>
         <div className="stat">
-          <div className="etichetta">Tasso di risparmio</div>
+          <div className="etichetta">
+            Tasso di risparmio
+            <Info>
+              <b>Tasso di risparmio</b> = saldo netto / entrate totali.
+              <br />
+              {euro(saldoNetto, true)} / {euro(analisi.totaleEntrate, true)} ={" "}
+              <b>
+                {analisi.totaleEntrate > 0
+                  ? ((saldoNetto / analisi.totaleEntrate) * 100).toFixed(0) + "%"
+                  : "—"}
+              </b>
+            </Info>
+          </div>
           <div className="valore">
             {analisi.totaleEntrate > 0
               ? ((saldoNetto / analisi.totaleEntrate) * 100).toFixed(0) + "%"

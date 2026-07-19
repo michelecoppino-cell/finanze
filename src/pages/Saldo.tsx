@@ -12,6 +12,7 @@ import {
 import { useApp } from "../store/AppStore";
 import { calcolaSaldo, campiona } from "../engine/saldo";
 import { euro } from "../util";
+import { Info } from "../components/Info";
 
 const COLORI = {
   grezzo: "#8a94a6",
@@ -28,6 +29,20 @@ export function Saldo() {
     () => calcolaSaldo(dati.transazioni, dati.tasse, dati.parametri),
     [dati.transazioni, dati.tasse, dati.parametri],
   );
+
+  // Componenti del saldo, per le spiegazioni (i). Annullate escluse, come nei calcoli.
+  const somme = useMemo(() => {
+    let entrate = 0;
+    let uscite = 0;
+    let tassePagate = 0;
+    for (const t of dati.transazioni) {
+      if (t.annullata) continue;
+      entrate += t.entrate ?? 0;
+      uscite += t.uscite ?? 0;
+      if (t.tasse && t.uscite) tassePagate += t.uscite;
+    }
+    return { entrate, uscite, tassePagate };
+  }, [dati.transazioni]);
 
   const primaData = ris.punti[0]?.data ?? "";
   const ultimaData = ris.ultimo?.data ?? "";
@@ -79,14 +94,45 @@ export function Saldo() {
     <>
       <div className="stat-griglia">
         <div className="stat">
-          <div className="etichetta">Saldo grezzo</div>
+          <div className="etichetta">
+            Saldo grezzo
+            <Info>
+              <b>Saldo grezzo</b> = saldo iniziale + entrate − uscite dai
+              movimenti (voci annullate escluse).
+              <br />
+              {euro(dati.parametri.saldoInizialeValore, true)} (al{" "}
+              {dati.parametri.saldoInizialeData}) +{" "}
+              {euro(somme.entrate, true)} − {euro(somme.uscite, true)} ={" "}
+              <b>{euro(u?.grezzo, true)}</b>
+            </Info>
+          </div>
           <div className="valore">{euro(u?.grezzo)}</div>
           <div className="muted" style={{ fontSize: 12 }}>
             soldi effettivi sul conto
           </div>
         </div>
         <div className="stat">
-          <div className="etichetta">Netto tasse</div>
+          <div className="etichetta">
+            Netto tasse
+            <Info>
+              <b>Netto tasse</b> = saldo grezzo − tasse maturate + tasse già
+              pagate.
+              <br />
+              Le tasse annue (pagina <b>Tasse</b>) vengono spalmate
+              giorno-per-giorno come se fossero accantonate; i pagamenti reali
+              (movimenti col flag Tasse, {euro(somme.tassePagate, true)})
+              vengono riaggiunti per non contarli due volte.
+              <br />
+              {euro(u?.grezzo, true)} −{" "}
+              {euro(
+                u
+                  ? u.grezzo - u.nettoTasse + somme.tassePagate
+                  : undefined,
+                true,
+              )}{" "}
+              + {euro(somme.tassePagate, true)} = <b>{euro(u?.nettoTasse, true)}</b>
+            </Info>
+          </div>
           <div className="valore" style={{ color: COLORI.nettoTasse }}>
             {euro(u?.nettoTasse)}
           </div>
@@ -97,14 +143,29 @@ export function Saldo() {
         {haInvestito && (
           <>
             <div className="stat">
-              <div className="etichetta">Investito (giroconti)</div>
+              <div className="etichetta">
+                Investito (giroconti)
+                <Info>
+                  Somma delle uscite marcate <b>Giro</b> (trasferimenti verso
+                  altri conti/PAC): sono uscite dal conto ma non spese, quindi
+                  restano nel patrimonio come capitale investito.
+                </Info>
+              </div>
               <div className="valore">{euro(u?.investito)}</div>
               <div className="muted" style={{ fontSize: 12 }}>
                 trasferito su altri conti/PAC
               </div>
             </div>
             <div className="stat">
-              <div className="etichetta">Patrimonio totale</div>
+              <div className="etichetta">
+                Patrimonio totale
+                <Info>
+                  <b>Patrimonio totale</b> = netto tasse + investito.
+                  <br />
+                  {euro(u?.nettoTasse, true)} + {euro(u?.investito, true)} ={" "}
+                  <b>{euro(u?.totale, true)}</b>
+                </Info>
+              </div>
               <div className="valore" style={{ color: COLORI.totale }}>
                 {euro(u?.totale)}
               </div>

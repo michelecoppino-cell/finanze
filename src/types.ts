@@ -25,6 +25,12 @@ export interface Transazione {
   /** Categoria di spesa/entrata (Excel: colonna J). */
   categoria?: string;
   note?: string; // colonna K
+  /**
+   * Movimento annullato: resta visibile in elenco (grigio e barrato) per non
+   * perderne traccia, ma viene ignorato da OGNI calcolo (saldo, analisi,
+   * proiezione, totali) come se non esistesse.
+   */
+  annullata?: boolean;
 }
 
 /** Categoria di spesa/entrata (foglio "Dati"). */
