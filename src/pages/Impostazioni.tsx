@@ -2,7 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { useApp } from "../store/AppStore";
 import { esportaJson, importaJson } from "../store/io";
 import { sha256 } from "../crypto";
-import { datiVuoti } from "../types";
+import { Mutuo, datiVuoti } from "../types";
+import { statoMutuo } from "../engine/mutuo";
+import { euro, toIso, uid } from "../util";
+import { Info } from "../components/Info";
 
 // MSAL/OneDrive caricato on-demand per non appesantire il bundle iniziale.
 const onedrive = () => import("../store/onedrive");
@@ -317,6 +320,8 @@ export function Impostazioni() {
         </div>
       </div>
 
+      <MutuiCard />
+
       <div className="card">
         <h3>Categorie</h3>
         <p className="muted">
@@ -380,5 +385,186 @@ export function Impostazioni() {
         </div>
       </div>
     </>
+  );
+}
+
+// ---------- Mutui / immobili ----------
+
+function MutuiCard() {
+  const { dati, aggiorna } = useApp();
+  const mutui = dati.mutui ?? [];
+  const oggi = toIso(new Date());
+
+  function mod(id: string, patch: Partial<Mutuo>) {
+    aggiorna((d) => ({
+      ...d,
+      mutui: (d.mutui ?? []).map((m) => (m.id === id ? { ...m, ...patch } : m)),
+    }));
+  }
+  function aggiungi() {
+    aggiorna((d) => ({
+      ...d,
+      mutui: [
+        ...(d.mutui ?? []),
+        {
+          id: uid(),
+          descrizione: "Mutuo casa",
+          importo: 100000,
+          tasso: 0.03,
+          durataMesi: 300,
+          dataInizio: oggi.slice(0, 8) + "01",
+        },
+      ],
+    }));
+  }
+  function elimina(id: string) {
+    aggiorna((d) => ({
+      ...d,
+      mutui: (d.mutui ?? []).filter((m) => m.id !== id),
+    }));
+  }
+
+  const numOr = (v: number | undefined) => (v === undefined ? "" : v);
+
+  return (
+    <div className="card">
+      <h3>Mutui / immobili</h3>
+      <p className="muted">
+        Un mutuo non è una spesa piena: la <b>quota capitale</b> delle rate
+        diventa equity dell'immobile (patrimonio), solo la{" "}
+        <b>quota interessi</b> è un costo. Configura qui il piano; poi nei{" "}
+        <b>Movimenti</b> marca le rate col tipo <b>Mutuo</b> (non "Giro":
+        anche l'anticipo va lasciato come uscita normale, l'equity la calcola
+        il piano da qui). Nella <b>Proiezione</b> ricordati di includere la
+        rata nelle spese mensili degli scenari.
+      </p>
+      {mutui.map((m) => {
+        const s = statoMutuo(m, oggi);
+        return (
+          <div key={m.id} className="mutuo-blocco">
+            <div className="form-griglia">
+              <label className="campo">
+                Descrizione
+                <input
+                  value={m.descrizione ?? ""}
+                  onChange={(e) => mod(m.id, { descrizione: e.target.value })}
+                />
+              </label>
+              <label className="campo">
+                Capitale finanziato (€)
+                <input
+                  type="number"
+                  value={numOr(m.importo)}
+                  onChange={(e) =>
+                    mod(m.id, { importo: Number(e.target.value) })
+                  }
+                />
+              </label>
+              <label className="campo">
+                TAN annuo (es. 0.032 = 3,2%)
+                <input
+                  type="number"
+                  step="0.001"
+                  value={numOr(m.tasso)}
+                  onChange={(e) => mod(m.id, { tasso: Number(e.target.value) })}
+                />
+              </label>
+              <label className="campo">
+                Durata (mesi)
+                <input
+                  type="number"
+                  value={numOr(m.durataMesi)}
+                  onChange={(e) =>
+                    mod(m.id, { durataMesi: Number(e.target.value) })
+                  }
+                />
+              </label>
+              <label className="campo">
+                Prima rata
+                <input
+                  type="date"
+                  value={m.dataInizio}
+                  onChange={(e) => mod(m.id, { dataInizio: e.target.value })}
+                />
+              </label>
+              <label className="campo">
+                Anticipo versato (€)
+                <input
+                  type="number"
+                  value={numOr(m.anticipo)}
+                  onChange={(e) =>
+                    mod(m.id, {
+                      anticipo:
+                        e.target.value === ""
+                          ? undefined
+                          : Number(e.target.value),
+                    })
+                  }
+                />
+              </label>
+              <label className="campo">
+                Valore immobile (€, opzionale)
+                <input
+                  type="number"
+                  value={numOr(m.valoreImmobile)}
+                  onChange={(e) =>
+                    mod(m.id, {
+                      valoreImmobile:
+                        e.target.value === ""
+                          ? undefined
+                          : Number(e.target.value),
+                    })
+                  }
+                />
+              </label>
+            </div>
+            <p className="muted" style={{ margin: "10px 0 0" }}>
+              Rata calcolata: <b>{euro(s.rata, true)}</b>/mese
+              <Info>
+                Piano francese: rata = C × i / (1 − (1+i)<sup>−n</sup>) con C ={" "}
+                {euro(m.importo, true)}, i = TAN/12 ={" "}
+                {((m.tasso / 12) * 100).toFixed(3)}%, n = {m.durataMesi} mesi.
+              </Info>{" "}
+              · Rate versate: <b>{s.rateVersate}</b> di {m.durataMesi} · Debito
+              residuo: <b>{euro(s.debitoResiduo)}</b> · Equity oggi:{" "}
+              <b>{euro(s.equity)}</b>
+              <Info>
+                <b>Equity</b> = anticipo + capitale rimborsato dalle rate
+                scadute.
+                <br />
+                {euro(m.anticipo ?? 0, true)} +{" "}
+                {euro(s.capitaleRimborsato, true)} = <b>{euro(s.equity, true)}</b>
+                <br />
+                Interessi pagati finora: {euro(s.interessiPagati, true)}.
+                {m.valoreImmobile !== undefined && (
+                  <>
+                    <br />
+                    Equity a valore di mercato: {euro(m.valoreImmobile, true)}{" "}
+                    − {euro(s.debitoResiduo, true)} ={" "}
+                    {euro(m.valoreImmobile - s.debitoResiduo, true)} (solo
+                    informativo: nel patrimonio si usa il costo, più prudente).
+                  </>
+                )}
+              </Info>
+              <button
+                className="cat-rimuovi"
+                style={{ marginLeft: 8 }}
+                title="Rimuovi mutuo"
+                onClick={() => elimina(m.id)}
+              >
+                ✕
+              </button>
+            </p>
+          </div>
+        );
+      })}
+      <button
+        className="secondario"
+        style={{ marginTop: 4 }}
+        onClick={aggiungi}
+      >
+        + Aggiungi mutuo
+      </button>
+    </div>
   );
 }

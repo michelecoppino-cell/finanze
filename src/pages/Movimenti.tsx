@@ -10,23 +10,142 @@ import {
   MappaturaCsv,
 } from "../store/io";
 
-type Tipo = "" | "entrate" | "uscite" | "trasferimenti" | "annullate";
+type Tipo =
+  | ""
+  | "entrate"
+  | "uscite"
+  | "trasferimenti"
+  | "interni"
+  | "mutuo"
+  | "annullate";
+
+/** Marcatura speciale di un movimento (mutuamente esclusiva). */
+type TipoSpeciale = "" | "giro" | "interno" | "mutuo";
+
+function tipoSpecialeDi(t: Transazione): TipoSpeciale {
+  return t.trasferimento
+    ? "giro"
+    : t.girocontoInterno
+      ? "interno"
+      : t.mutuo
+        ? "mutuo"
+        : "";
+}
+
+/** Patch per impostare la marcatura speciale (una esclude le altre). */
+function patchTipoSpeciale(v: TipoSpeciale): Partial<Transazione> {
+  return {
+    trasferimento: v === "giro" || undefined,
+    girocontoInterno: v === "interno" || undefined,
+    mutuo: v === "mutuo" || undefined,
+    // le marcature speciali non hanno categoria di spesa
+    ...(v ? { categoria: undefined } : {}),
+  };
+}
 
 /** Azioni applicabili in blocco ai movimenti selezionati. */
 const AZIONI_BULK: { id: string; nome: string; patch: Partial<Transazione> }[] = [
   { id: "annulla", nome: "Annulla voci", patch: { annullata: true } },
   { id: "ripristina", nome: "Ripristina voci", patch: { annullata: undefined } },
+  { id: "giro", nome: "Segna Giro (investimenti)", patch: patchTipoSpeciale("giro") },
   {
-    id: "giro-si",
-    nome: "Segna come giroconto",
-    patch: { trasferimento: true, categoria: undefined },
+    id: "interno",
+    nome: "Segna giroconto interno",
+    patch: patchTipoSpeciale("interno"),
   },
-  { id: "giro-no", nome: "Togli giroconto", patch: { trasferimento: undefined } },
+  { id: "mutuo", nome: "Segna rata mutuo", patch: patchTipoSpeciale("mutuo") },
+  {
+    id: "tipo-no",
+    nome: "Togli marcatura (Giro/Interno/Mutuo)",
+    patch: {
+      trasferimento: undefined,
+      girocontoInterno: undefined,
+      mutuo: undefined,
+    },
+  },
   { id: "fatt-si", nome: "Segna come fattura", patch: { fattura: true } },
   { id: "fatt-no", nome: "Togli fattura", patch: { fattura: undefined } },
   { id: "tasse-si", nome: "Segna come tasse", patch: { tasse: true } },
   { id: "tasse-no", nome: "Togli tasse", patch: { tasse: undefined } },
 ];
+
+/** Palette dei badge conto (assegnata per ordine alfabetico dei conti). */
+const COLORI_CONTO = [
+  "#4c78a8", "#f58518", "#54a24b", "#b279a2", "#e45756", "#72b7b2",
+];
+
+// Riconoscimento della banca dal tracciato del CSV: ogni banca esporta con le
+// sue intestazioni di colonna, quindi la firma dell'header identifica il conto.
+// La associazione tracciato -> conto viene ricordata in localStorage e
+// riproposta automaticamente agli import successivi.
+const LS_CONTI_CSV = "finanze.contoPerTracciato";
+
+function firmaTracciato(header: string[]): string {
+  return header.map((h) => h.trim().toLowerCase()).join("|");
+}
+
+function contoRicordato(header: string[]): string {
+  try {
+    const m = JSON.parse(localStorage.getItem(LS_CONTI_CSV) ?? "{}") as Record<
+      string,
+      string
+    >;
+    return m[firmaTracciato(header)] ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function ricordaConto(header: string[], conto: string): void {
+  try {
+    const m = JSON.parse(localStorage.getItem(LS_CONTI_CSV) ?? "{}") as Record<
+      string,
+      string
+    >;
+    m[firmaTracciato(header)] = conto;
+    localStorage.setItem(LS_CONTI_CSV, JSON.stringify(m));
+  } catch {
+    /* localStorage non disponibile: ignora */
+  }
+}
+
+function giorniTra(a: string, b: string): number {
+  return (
+    Math.abs(
+      new Date(a + "T00:00:00").getTime() - new Date(b + "T00:00:00").getTime(),
+    ) / 86400000
+  );
+}
+
+/**
+ * Cerca coppie di movimenti che sembrano giroconti interni: stesso importo,
+ * direzioni opposte, conti DIVERSI (entrambi assegnati), entro 4 giorni.
+ * Ogni movimento entra al massimo in una coppia.
+ */
+function trovaCoppieInterne(
+  transazioni: Transazione[],
+): [Transazione, Transazione][] {
+  const libera = (t: Transazione) =>
+    !t.annullata && !t.trasferimento && !t.girocontoInterno && !t.mutuo && !!t.conto;
+  const uscite = transazioni.filter((t) => t.uscite && libera(t));
+  const entrate = transazioni.filter((t) => t.entrate && libera(t));
+  const usate = new Set<string>();
+  const coppie: [Transazione, Transazione][] = [];
+  for (const u of uscite) {
+    const e = entrate.find(
+      (e) =>
+        !usate.has(e.id) &&
+        e.conto !== u.conto &&
+        e.entrate === u.uscite &&
+        giorniTra(u.data, e.data) <= 4,
+    );
+    if (e) {
+      usate.add(e.id);
+      coppie.push([u, e]);
+    }
+  }
+  return coppie;
+}
 
 export function Movimenti() {
   const { dati, aggiorna } = useApp();
@@ -35,6 +154,7 @@ export function Movimenti() {
     header: string[];
     mappa: MappaturaCsv;
     conHeader: boolean;
+    conto: string;
   } | null>(null);
 
   // Filtri: uno per "colonna" (data, causale, importo) + tipo e categoria.
@@ -45,9 +165,11 @@ export function Movimenti() {
   const [importoMax, setImportoMax] = useState("");
   const [filtroTipo, setFiltroTipo] = useState<Tipo>("");
   const [filtroCat, setFiltroCat] = useState("");
+  const [filtroConto, setFiltroConto] = useState("");
 
   const [mostraAI, setMostraAI] = useState(false);
   const [mostraNuovo, setMostraNuovo] = useState(false);
+  const [mostraCoppie, setMostraCoppie] = useState(false);
   const [esitoImport, setEsitoImport] = useState("");
   // Selezione multipla per le modifiche in blocco.
   const [selezione, setSelezione] = useState<Set<string>>(new Set());
@@ -63,6 +185,18 @@ export function Movimenti() {
   const numAnnullate = dati.transazioni.filter((t) => t.annullata).length;
   const numAttive = dati.transazioni.length - numAnnullate;
 
+  // Conti/banche presenti nei dati (per badge, filtro e assegnazione).
+  const conti = useMemo(() => {
+    const s = new Set<string>();
+    for (const t of dati.transazioni) if (t.conto) s.add(t.conto);
+    return [...s].sort();
+  }, [dati.transazioni]);
+  const coloreConto = useMemo(() => {
+    const m: Record<string, string> = {};
+    conti.forEach((c, i) => (m[c] = COLORI_CONTO[i % COLORI_CONTO.length]));
+    return m;
+  }, [conti]);
+
   const filtrate = useMemo(() => {
     const txt = filtroTesto.toLowerCase().trim();
     // parseNumeroIt accetta anche importi scritti all'italiana ("1.234,56").
@@ -72,14 +206,21 @@ export function Movimenti() {
       .filter((t) => {
         if (dataDa && t.data < dataDa) return false;
         if (dataA && t.data > dataA) return false;
+        if (filtroConto && t.conto !== filtroConto) return false;
         // Le annullate restano visibili in elenco (barrate) ma non compaiono
         // quando si filtra per un tipo specifico; "Annullate" le mostra da sole.
         if (filtroTipo === "annullate") return !!t.annullata;
         if (t.annullata && filtroTipo) return false;
-        if (filtroTipo === "entrate" && !t.entrate) return false;
-        if (filtroTipo === "uscite" && !(t.uscite && !t.trasferimento))
+        if (filtroTipo === "entrate" && !(t.entrate && !t.girocontoInterno))
+          return false;
+        if (
+          filtroTipo === "uscite" &&
+          !(t.uscite && !t.trasferimento && !t.girocontoInterno && !t.mutuo)
+        )
           return false;
         if (filtroTipo === "trasferimenti" && !t.trasferimento) return false;
+        if (filtroTipo === "interni" && !t.girocontoInterno) return false;
+        if (filtroTipo === "mutuo" && !t.mutuo) return false;
         if (filtroCat) {
           if (filtroCat === "__vuote__" && (t.categoria || t.trasferimento))
             return false;
@@ -114,6 +255,7 @@ export function Movimenti() {
     importoMax,
     filtroTipo,
     filtroCat,
+    filtroConto,
   ]);
 
   // Totali del risultato filtrato: utili per rispondere a "quanto ho speso in X?".
@@ -122,15 +264,23 @@ export function Movimenti() {
     let entrate = 0;
     let uscite = 0;
     for (const t of filtrate) {
-      if (t.annullata) continue;
+      // Coerente con l'analisi: annullate e giroconti interni non contano;
+      // Giro e rate mutuo non sono spese.
+      if (t.annullata || t.girocontoInterno) continue;
       if (t.entrate) entrate += t.entrate;
-      if (t.uscite && !t.trasferimento) uscite += t.uscite;
+      if (t.uscite && !t.trasferimento && !t.mutuo) uscite += t.uscite;
     }
     return { entrate, uscite };
   }, [filtrate]);
 
   const nonCategorizzate = dati.transazioni.filter(
-    (t) => t.uscite && !t.categoria && !t.trasferimento && !t.annullata,
+    (t) =>
+      t.uscite &&
+      !t.categoria &&
+      !t.trasferimento &&
+      !t.girocontoInterno &&
+      !t.mutuo &&
+      !t.annullata,
   ).length;
 
   const numFiltriAttivi = [
@@ -141,6 +291,7 @@ export function Movimenti() {
     importoMax,
     filtroTipo,
     filtroCat,
+    filtroConto,
   ].filter(Boolean).length;
   const filtriAttivi = numFiltriAttivi > 0;
 
@@ -152,6 +303,7 @@ export function Movimenti() {
     setImportoMax("");
     setFiltroTipo("");
     setFiltroCat("");
+    setFiltroConto("");
   }
 
   // ---------- Import CSV ----------
@@ -169,6 +321,8 @@ export function Movimenti() {
         header,
         mappa: indovinaMappatura(header),
         conHeader: true,
+        // Banca riconosciuta dal tracciato (se gia' importato in passato).
+        conto: contoRicordato(header),
       });
     };
     reader.readAsText(file, "utf-8");
@@ -185,14 +339,19 @@ export function Movimenti() {
 
   function confermaImport() {
     if (!importCsv) return;
+    const conto = importCsv.conto.trim();
+    if (!conto) return; // la banca è obbligatoria
     const { unici, duplicati } = scartaDuplicati(anteprima, dati.transazioni);
+    const daAggiungere = unici.map((t) => ({ ...t, conto }));
     aggiorna((d) => ({
       ...d,
-      transazioni: [...d.transazioni, ...unici],
+      transazioni: [...d.transazioni, ...daAggiungere],
     }));
+    // Ricorda banca <-> tracciato per riconoscerla al prossimo import.
+    ricordaConto(importCsv.header, conto);
     setEsitoImport(
-      `Importati ${unici.length} movimenti` +
-        (duplicati > 0 ? ` · ${duplicati} duplicati saltati` : ""),
+      `Importati ${numero(unici.length)} movimenti su ${conto}` +
+        (duplicati > 0 ? ` · ${numero(duplicati)} duplicati saltati` : ""),
     );
     setImportCsv(null);
   }
@@ -260,6 +419,27 @@ export function Movimenti() {
     }));
   }
 
+  function applicaBulkConto(conto: string) {
+    aggiorna((d) => ({
+      ...d,
+      transazioni: d.transazioni.map((t) =>
+        selezione.has(t.id) ? { ...t, conto: conto.trim() || undefined } : t,
+      ),
+    }));
+  }
+
+  /** Marca entrambe le gambe delle coppie scelte come giroconto interno. */
+  function marcaCoppie(ids: Set<string>) {
+    aggiorna((d) => ({
+      ...d,
+      transazioni: d.transazioni.map((t) =>
+        ids.has(t.id) ? { ...t, ...patchTipoSpeciale("interno") } : t,
+      ),
+    }));
+    setMostraCoppie(false);
+    setEsitoImport(`Marcati ${numero(ids.size)} movimenti come giroconti interni.`);
+  }
+
   // ---------- Aggiunta manuale ----------
 
   function aggiungiMovimento(t: Transazione) {
@@ -293,6 +473,15 @@ export function Movimenti() {
             <span className="chip">{nonCategorizzate}</span>
           )}
         </button>
+        {conti.length >= 2 && (
+          <button
+            className="secondario"
+            onClick={() => setMostraCoppie((v) => !v)}
+            title="Cerca coppie di movimenti uguali e opposti tra conti diversi"
+          >
+            Trova giroconti interni
+          </button>
+        )}
         <span className="muted">
           {numero(numAttive)} movimenti · {numero(nonCategorizzate)} da
           categorizzare
@@ -304,6 +493,7 @@ export function Movimenti() {
       {mostraNuovo && (
         <FormNuovoMovimento
           categorie={categorie}
+          conti={conti}
           onAggiungi={aggiungiMovimento}
           onAnnulla={() => setMostraNuovo(false)}
         />
@@ -313,6 +503,7 @@ export function Movimenti() {
         <MappaturaImport
           stato={importCsv}
           anteprima={anteprima}
+          conti={conti}
           onCambia={(m) => setImportCsv({ ...importCsv, ...m })}
           onConferma={confermaImport}
           onAnnulla={() => setImportCsv(null)}
@@ -320,6 +511,14 @@ export function Movimenti() {
       )}
 
       {mostraAI && <PannelloAI onChiudi={() => setMostraAI(false)} />}
+
+      {mostraCoppie && (
+        <PannelloCoppie
+          transazioni={dati.transazioni}
+          onMarca={marcaCoppie}
+          onChiudi={() => setMostraCoppie(false)}
+        />
+      )}
 
       <button
         className="secondario filtri-toggle"
@@ -375,9 +574,24 @@ export function Movimenti() {
             <option value="">Tutti i tipi</option>
             <option value="entrate">Entrate</option>
             <option value="uscite">Uscite</option>
-            <option value="trasferimenti">Trasferimenti</option>
+            <option value="trasferimenti">Giro (investimenti)</option>
+            <option value="interni">Giroconti interni</option>
+            <option value="mutuo">Rate mutuo</option>
             <option value="annullate">Annullate</option>
           </select>
+          {conti.length > 0 && (
+            <select
+              value={filtroConto}
+              onChange={(e) => setFiltroConto(e.target.value)}
+            >
+              <option value="">Tutti i conti</option>
+              {conti.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          )}
           <select
             value={filtroCat}
             onChange={(e) => setFiltroCat(e.target.value)}
@@ -403,7 +617,9 @@ export function Movimenti() {
         <BarraSelezione
           n={selezione.size}
           categorie={categorie}
+          conti={conti}
           onCategoria={applicaBulkCategoria}
+          onConto={applicaBulkConto}
           onAzione={applicaBulk}
           onDeseleziona={() => setSelezione(new Set())}
         />
@@ -420,6 +636,8 @@ export function Movimenti() {
           totaleAttivi={numAttive}
           totaliFiltrati={filtriAttivi ? totaliFiltrati : undefined}
           categorie={categorie}
+          coloreConto={coloreConto}
+          mostraConto={conti.length > 0}
           selezione={selezione}
           onToggleSel={toggleSel}
           onToggleSelTutte={toggleSelTutte}
@@ -436,18 +654,23 @@ export function Movimenti() {
 function BarraSelezione({
   n,
   categorie,
+  conti,
   onCategoria,
+  onConto,
   onAzione,
   onDeseleziona,
 }: {
   n: number;
   categorie: string[];
+  conti: string[];
   onCategoria: (cat: string) => void;
+  onConto: (conto: string) => void;
   onAzione: (patch: Partial<Transazione>) => void;
   onDeseleziona: () => void;
 }) {
   const [cat, setCat] = useState("");
   const [azione, setAzione] = useState("");
+  const [conto, setConto] = useState("");
 
   return (
     <div className="card barra-selezione">
@@ -490,9 +713,128 @@ function BarraSelezione({
           Applica
         </button>
       </span>
+      <span className="barra-gruppo">
+        <input
+          list="lista-conti-bulk"
+          placeholder="Conto…"
+          style={{ width: 110 }}
+          value={conto}
+          onChange={(e) => setConto(e.target.value)}
+        />
+        <datalist id="lista-conti-bulk">
+          {conti.map((c) => (
+            <option key={c} value={c} />
+          ))}
+        </datalist>
+        <button
+          className="secondario"
+          disabled={!conto.trim()}
+          onClick={() => onConto(conto)}
+        >
+          Assegna
+        </button>
+      </span>
       <button className="secondario" onClick={onDeseleziona}>
         Deseleziona
       </button>
+    </div>
+  );
+}
+
+// ---------- Pannello coppie di giroconti interni ----------
+
+function PannelloCoppie({
+  transazioni,
+  onMarca,
+  onChiudi,
+}: {
+  transazioni: Transazione[];
+  onMarca: (ids: Set<string>) => void;
+  onChiudi: () => void;
+}) {
+  const coppie = useMemo(() => trovaCoppieInterne(transazioni), [transazioni]);
+  // Di default tutte le coppie proposte sono spuntate.
+  const [escluse, setEscluse] = useState<Set<string>>(new Set());
+
+  const scelte = coppie.filter(([u]) => !escluse.has(u.id));
+
+  function toggle(idUscita: string) {
+    setEscluse((prev) => {
+      const next = new Set(prev);
+      if (next.has(idUscita)) next.delete(idUscita);
+      else next.add(idUscita);
+      return next;
+    });
+  }
+
+  return (
+    <div className="card">
+      <div className="riga-azioni" style={{ justifyContent: "space-between" }}>
+        <h3 style={{ margin: 0 }}>Possibili giroconti interni</h3>
+        <button className="secondario" onClick={onChiudi}>
+          Chiudi
+        </button>
+      </div>
+      {coppie.length === 0 ? (
+        <p className="muted">
+          Nessuna coppia trovata: servono un'uscita e un'entrata di pari
+          importo, su conti diversi, a distanza di massimo 4 giorni (con il
+          conto assegnato a entrambe).
+        </p>
+      ) : (
+        <>
+          <p className="muted">
+            Stesso importo, direzioni opposte, conti diversi, entro 4 giorni.
+            Le coppie marcate spariscono da spese ed entrate (il saldo resta
+            corretto: si annullano da sole).
+          </p>
+          <div className="tabella-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th></th>
+                  <th>Uscita</th>
+                  <th>Entrata</th>
+                  <th className="num">Importo</th>
+                </tr>
+              </thead>
+              <tbody>
+                {coppie.map(([u, e]) => (
+                  <tr key={u.id}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={!escluse.has(u.id)}
+                        onChange={() => toggle(u.id)}
+                      />
+                    </td>
+                    <td title={u.causale}>
+                      {u.data} · <b>{u.conto}</b> ·{" "}
+                      {(u.causale ?? "").slice(0, 30)}
+                    </td>
+                    <td title={e.causale}>
+                      {e.data} · <b>{e.conto}</b> ·{" "}
+                      {(e.causale ?? "").slice(0, 30)}
+                    </td>
+                    <td className="num">{euro(u.uscite, true)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="riga-azioni" style={{ marginTop: 12 }}>
+            <button
+              className="primario"
+              disabled={scelte.length === 0}
+              onClick={() =>
+                onMarca(new Set(scelte.flatMap(([u, e]) => [u.id, e.id])))
+              }
+            >
+              Marca {numero(scelte.length)} coppie come giroconti interni
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -501,10 +843,12 @@ function BarraSelezione({
 
 function FormNuovoMovimento({
   categorie,
+  conti,
   onAggiungi,
   onAnnulla,
 }: {
   categorie: string[];
+  conti: string[];
   onAggiungi: (t: Transazione) => void;
   onAnnulla: () => void;
 }) {
@@ -513,6 +857,7 @@ function FormNuovoMovimento({
   const [verso, setVerso] = useState<"uscita" | "entrata">("uscita");
   const [importo, setImporto] = useState("");
   const [categoria, setCategoria] = useState("");
+  const [conto, setConto] = useState("");
   const [note, setNote] = useState("");
 
   const imp = parseNumeroIt(importo);
@@ -529,6 +874,7 @@ function FormNuovoMovimento({
       entrate: verso === "entrata" ? v : undefined,
       uscite: verso === "uscita" ? v : undefined,
       categoria: categoria || undefined,
+      conto: conto.trim() || undefined,
       note: note.trim() || undefined,
     });
   }
@@ -591,6 +937,20 @@ function FormNuovoMovimento({
           </select>
         </label>
         <label className="campo">
+          Conto
+          <input
+            list="lista-conti-nuovo"
+            placeholder="es. Fineco"
+            value={conto}
+            onChange={(e) => setConto(e.target.value)}
+          />
+          <datalist id="lista-conti-nuovo">
+            {conti.map((c) => (
+              <option key={c} value={c} />
+            ))}
+          </datalist>
+        </label>
+        <label className="campo">
           Note
           <input value={note} onChange={(e) => setNote(e.target.value)} />
         </label>
@@ -614,6 +974,8 @@ function TabellaMovimenti({
   totaleAttivi,
   totaliFiltrati,
   categorie,
+  coloreConto,
+  mostraConto,
   selezione,
   onToggleSel,
   onToggleSelTutte,
@@ -624,6 +986,8 @@ function TabellaMovimenti({
   totaleAttivi: number;
   totaliFiltrati?: { entrate: number; uscite: number };
   categorie: string[];
+  coloreConto: Record<string, string>;
+  mostraConto: boolean;
   selezione: Set<string>;
   onToggleSel: (id: string) => void;
   onToggleSelTutte: () => void;
@@ -666,12 +1030,13 @@ function TabellaMovimenti({
                 />
               </th>
               <th>Data</th>
+              {mostraConto && <th>Conto</th>}
               <th>Causale</th>
               <th className="num">Entrate</th>
               <th className="num">Uscite</th>
               <th>Categoria</th>
-              <th title="Giroconto / trasferimento su altro conto (es. PAC)">
-                Giro
+              <th title="Marcatura speciale: Giro (PAC/investimenti), giroconto Interno tra conti propri, rata Mutuo">
+                Tipo
               </th>
               <th>Fatt.</th>
               <th>Tasse</th>
@@ -685,6 +1050,8 @@ function TabellaMovimenti({
                 key={t.id}
                 className={
                   (t.trasferimento ? "riga-trasf " : "") +
+                  (t.girocontoInterno ? "riga-interna " : "") +
+                  (t.mutuo ? "riga-mutuo " : "") +
                   (t.annullata ? "riga-annullata" : "")
                 }
               >
@@ -696,6 +1063,23 @@ function TabellaMovimenti({
                   />
                 </td>
                 <td>{t.data}</td>
+                {mostraConto && (
+                  <td>
+                    {t.conto && (
+                      <span
+                        className="chip chip-conto"
+                        style={{ borderColor: coloreConto[t.conto] }}
+                        title={t.conto}
+                      >
+                        <span
+                          className="pallino"
+                          style={{ background: coloreConto[t.conto] }}
+                        />
+                        {t.conto}
+                      </span>
+                    )}
+                  </td>
+                )}
                 <td title={t.causale} className="cella-causale">
                   {(t.causale ?? "").slice(0, 46) || (
                     <span className="muted">{t.tipologia}</span>
@@ -707,16 +1091,26 @@ function TabellaMovimenti({
                 <td
                   className={
                     "num cella-importo " +
-                    (t.trasferimento ? "muted" : "uscita")
+                    (t.trasferimento || t.girocontoInterno || t.mutuo
+                      ? "muted"
+                      : "uscita")
                   }
-                  title={t.trasferimento ? "Trasferimento (non è una spesa)" : ""}
+                  title={
+                    t.trasferimento
+                      ? "Giro verso investimenti (non è una spesa)"
+                      : t.girocontoInterno
+                        ? "Giroconto interno tra conti propri (non è una spesa)"
+                        : t.mutuo
+                          ? "Rata mutuo (solo la quota interessi è una spesa)"
+                          : ""
+                  }
                 >
                   {t.uscite ? euro(t.uscite, true) : ""}
                 </td>
                 <td>
                   <select
                     value={t.categoria ?? ""}
-                    disabled={t.trasferimento || t.annullata}
+                    disabled={!!tipoSpecialeDi(t) || t.annullata}
                     onChange={(e) =>
                       onModifica(t.id, {
                         categoria: e.target.value || undefined,
@@ -732,19 +1126,22 @@ function TabellaMovimenti({
                   </select>
                 </td>
                 <td>
-                  <input
-                    type="checkbox"
-                    checked={!!t.trasferimento}
+                  <select
+                    value={tipoSpecialeDi(t)}
                     disabled={t.annullata}
-                    title="Segna come trasferimento/giroconto (es. PAC su Scalable)"
+                    title="Giro: verso investimenti (PAC). Interno: tra conti propri. Mutuo: rata (capitale = investimento)."
                     onChange={(e) =>
-                      onModifica(t.id, {
-                        trasferimento: e.target.checked || undefined,
-                        // un trasferimento non è una categoria di spesa
-                        categoria: e.target.checked ? undefined : t.categoria,
-                      })
+                      onModifica(
+                        t.id,
+                        patchTipoSpeciale(e.target.value as TipoSpeciale),
+                      )
                     }
-                  />
+                  >
+                    <option value="">—</option>
+                    <option value="giro">Giro</option>
+                    <option value="interno">Interno</option>
+                    <option value="mutuo">Mutuo</option>
+                  </select>
                 </td>
                 <td>
                   <input
@@ -810,12 +1207,20 @@ function TabellaMovimenti({
 function MappaturaImport({
   stato,
   anteprima,
+  conti,
   onCambia,
   onConferma,
   onAnnulla,
 }: {
-  stato: { righe: string[][]; header: string[]; mappa: MappaturaCsv; conHeader: boolean };
+  stato: {
+    righe: string[][];
+    header: string[];
+    mappa: MappaturaCsv;
+    conHeader: boolean;
+    conto: string;
+  };
   anteprima: Transazione[];
+  conti: string[];
   onCambia: (m: Partial<typeof stato>) => void;
   onConferma: () => void;
   onAnnulla: () => void;
@@ -852,9 +1257,42 @@ function MappaturaImport({
     </label>
   );
 
+  const contoOk = stato.conto.trim() !== "";
+  const riconosciuta = contoOk && contoRicordato(stato.header) === stato.conto.trim();
+
   return (
     <div className="card">
       <h3>Importazione CSV — controlla le colonne</h3>
+
+      <div className="import-banca">
+        <label className="campo" style={{ maxWidth: 320 }}>
+          Di quale banca/conto sono questi movimenti? *
+          <input
+            list="lista-conti"
+            placeholder="es. Fineco, Intesa…"
+            value={stato.conto}
+            autoFocus={!contoOk}
+            onChange={(e) => onCambia({ conto: e.target.value })}
+          />
+          <datalist id="lista-conti">
+            {conti.map((c) => (
+              <option key={c} value={c} />
+            ))}
+          </datalist>
+        </label>
+        <span className="muted" style={{ fontSize: 12 }}>
+          {riconosciuta ? (
+            <>✓ Tracciato riconosciuto: già importato da <b>{stato.conto}</b>.</>
+          ) : (
+            <>
+              Tutti i movimenti di questo file verranno salvati su questo
+              conto. L'app ricorda il tracciato: la prossima volta la banca
+              viene riconosciuta da sola.
+            </>
+          )}
+        </span>
+      </div>
+
       <label
         className="campo"
         style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 }}
@@ -905,13 +1343,20 @@ function MappaturaImport({
         <button
           className="primario"
           onClick={onConferma}
-          disabled={anteprima.length === 0}
+          disabled={anteprima.length === 0 || !contoOk}
+          title={!contoOk ? "Indica prima la banca/conto del file" : ""}
         >
-          Importa {anteprima.length} movimenti
+          Importa {numero(anteprima.length)} movimenti
+          {contoOk && <> su {stato.conto.trim()}</>}
         </button>
         <button className="secondario" onClick={onAnnulla}>
           Annulla
         </button>
+        {!contoOk && (
+          <span className="muted" style={{ fontSize: 12 }}>
+            ⚠ Indica la banca per procedere.
+          </span>
+        )}
       </div>
     </div>
   );
@@ -924,10 +1369,16 @@ function PannelloAI({ onChiudi }: { onChiudi: () => void }) {
   const [risultato, setRisultato] = useState("");
   const [esito, setEsito] = useState("");
 
-  // I trasferimenti non sono spese e le voci annullate non esistono:
-  // fuori dalla categorizzazione.
+  // Trasferimenti, giroconti interni e rate mutuo non sono spese da
+  // categorizzare; le voci annullate non esistono.
   const daFare = dati.transazioni.filter(
-    (t) => t.uscite && !t.categoria && !t.trasferimento && !t.annullata,
+    (t) =>
+      t.uscite &&
+      !t.categoria &&
+      !t.trasferimento &&
+      !t.girocontoInterno &&
+      !t.mutuo &&
+      !t.annullata,
   );
 
   const prompt = buildPromptCategorizzazione(dati.categorie, daFare);

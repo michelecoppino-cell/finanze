@@ -31,6 +31,20 @@ export interface Transazione {
    * proiezione, totali) come se non esistesse.
    */
   annullata?: boolean;
+  /**
+   * Giroconto interno tra due conti PROPRI (es. bonifico da banca A a banca
+   * B, con i CSV di entrambe caricati). Le due gambe si annullano nel saldo;
+   * nell'analisi non sono ne' spese ne' entrate; NON è capitale investito.
+   */
+  girocontoInterno?: boolean;
+  /**
+   * Rata di mutuo: non è una spesa piena. La quota capitale (dal piano di
+   * ammortamento configurato in Impostazioni) diventa equity dell'immobile;
+   * solo la quota interessi conta come spesa nell'analisi.
+   */
+  mutuo?: boolean;
+  /** Conto/banca di provenienza (assegnato all'import del CSV). */
+  conto?: string;
 }
 
 /** Categoria di spesa/entrata (foglio "Dati"). */
@@ -83,6 +97,28 @@ export interface Investimento {
   frequenzaMesi?: number;
 }
 
+/**
+ * Mutuo su un immobile (piano di ammortamento francese). Serve a trattare il
+ * mutuo da investimento e non da spesa: la quota capitale delle rate diventa
+ * equity dell'immobile (patrimonio), solo la quota interessi resta una spesa.
+ */
+export interface Mutuo {
+  id: string;
+  descrizione?: string;
+  /** Capitale finanziato dalla banca. */
+  importo: number;
+  /** TAN annuo (decimale, es. 0.032 = 3,2%). */
+  tasso: number;
+  /** Durata del piano in mesi (es. 300 = 25 anni). */
+  durataMesi: number;
+  /** Mese della prima rata (ISO, es. 2024-06-01). */
+  dataInizio: string;
+  /** Anticipo/caparra pagati di tasca: equity immediata dell'immobile. */
+  anticipo?: number;
+  /** Valore di mercato dell'immobile (solo informativo). */
+  valoreImmobile?: number;
+}
+
 /** Parametri globali editabili. */
 export interface Parametri {
   /** Punto di partenza noto del saldo (Excel: Saldo!C2). */
@@ -124,6 +160,8 @@ export interface DatiApp {
   tasse: AnnoTasse[];
   eventiFuturi: EventoFuturo[];
   investimenti: Investimento[];
+  /** Mutui/immobili (equity conteggiata nel patrimonio). */
+  mutui?: Mutuo[];
   parametri: Parametri;
 }
 
@@ -205,6 +243,7 @@ export function datiVuoti(): DatiApp {
     tasse: [],
     eventiFuturi: [],
     investimenti: [],
+    mutui: [],
     parametri: {
       saldoInizialeData: "2017-01-01",
       saldoInizialeValore: 6400,

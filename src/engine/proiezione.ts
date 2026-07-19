@@ -30,10 +30,12 @@ import {
   AnnoTasse,
   EventoFuturo,
   Investimento,
+  Mutuo,
   Parametri,
   Transazione,
 } from "../types";
 import { calcolaSaldo } from "./saldo";
+import { equityImmobili } from "./mutuo";
 
 export interface PuntoProiezione {
   data: string; // yyyy-mm-01
@@ -41,6 +43,8 @@ export interface PuntoProiezione {
   liquido: number;
   investito: number;
   guadagni: number;
+  /** Equity immobiliare: anticipo + capitale rimborsato dei mutui. */
+  immobile: number;
   totale: number;
 }
 
@@ -131,6 +135,7 @@ export function calcolaProiezione(
   eventi: EventoFuturo[],
   investimenti: Investimento[],
   par: Parametri,
+  mutui: Mutuo[] = [],
 ): ProiezioneRisultato {
   const saldo = calcolaSaldo(transazioni, tasse, par);
   const startIso = saldo.ultimo?.data ?? par.saldoInizialeData;
@@ -253,7 +258,13 @@ export function calcolaProiezione(
     }
 
     if (liquido < liquiditaMinima) liquiditaMinima = liquido;
-    const totale = liquido + investito + guadagni;
+
+    // Equity immobiliare dei mutui (anticipo + capitale rimborsato). La rata
+    // e' un flusso di cassa che deve stare nelle spese mensili degli scenari:
+    // qui si aggiunge solo lo stock di capitale che si accumula.
+    const immobile = mutui.length > 0 ? equityImmobili(mutui, k) : 0;
+
+    const totale = liquido + investito + guadagni + immobile;
 
     punti.push({
       data: `${k}-01`,
@@ -261,6 +272,7 @@ export function calcolaProiezione(
       liquido: Math.round(liquido),
       investito: Math.round(investito),
       guadagni: Math.round(guadagni),
+      immobile: Math.round(immobile),
       totale: Math.round(totale),
     });
 
