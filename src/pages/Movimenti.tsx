@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useApp } from "../store/AppStore";
 import { Transazione } from "../types";
 import { euro, numero, parseNumeroIt, uid } from "../util";
@@ -40,6 +41,58 @@ function patchTipoSpeciale(v: TipoSpeciale): Partial<Transazione> {
     mutuo: v === "mutuo" || undefined,
     // le marcature speciali non hanno categoria di spesa
     ...(v ? { categoria: undefined } : {}),
+  };
+}
+
+/** Campo su cui ordinare la tabella, con direzione (come l'ordinamento colonna di Excel). */
+type CampoOrdine = "data" | "causale" | "entrate" | "uscite" | "categoria" | "tipo" | "note";
+type OrdineColonna = { campo: CampoOrdine; dir: "asc" | "desc" } | null;
+
+/** Valore selezionabile in un filtro "a lista" (checkbox) sullo stile di Excel. */
+type VoceLista = { valore: string; etichetta: string };
+
+/** Costruisce il comparatore per l'ordinamento corrente; senza ordinamento esplicito
+ * si mantiene il comportamento storico (più recenti in cima). */
+function costruisciComparatore(
+  ordine: OrdineColonna,
+): (a: Transazione, b: Transazione) => number {
+  if (!ordine) return (a, b) => b.data.localeCompare(a.data);
+  const segno = ordine.dir === "asc" ? 1 : -1;
+  return (a, b) => {
+    let va: string | number;
+    let vb: string | number;
+    switch (ordine.campo) {
+      case "entrate":
+        va = a.entrate ?? 0;
+        vb = b.entrate ?? 0;
+        break;
+      case "uscite":
+        va = a.uscite ?? 0;
+        vb = b.uscite ?? 0;
+        break;
+      case "causale":
+        va = (a.causale ?? "").toLowerCase();
+        vb = (b.causale ?? "").toLowerCase();
+        break;
+      case "categoria":
+        va = (a.categoria ?? "").toLowerCase();
+        vb = (b.categoria ?? "").toLowerCase();
+        break;
+      case "tipo":
+        va = tipoSpecialeDi(a);
+        vb = tipoSpecialeDi(b);
+        break;
+      case "note":
+        va = (a.note ?? "").toLowerCase();
+        vb = (b.note ?? "").toLowerCase();
+        break;
+      default:
+        va = a.data;
+        vb = b.data;
+    }
+    if (va < vb) return -segno;
+    if (va > vb) return segno;
+    return 0;
   };
 }
 
@@ -167,12 +220,29 @@ export function Movimenti() {
   const [filtroCat, setFiltroCat] = useState("");
   const [filtroConto, setFiltroConto] = useState("");
 
+  // Filtri e ordinamento per singola colonna, sullo stile del filtro automatico
+  // di Excel (menu a tendina sull'intestazione di ogni colonna).
+  const [ordine, setOrdine] = useState<OrdineColonna>(null);
+  const [filtroColCausale, setFiltroColCausale] = useState("");
+  const [filtroColNote, setFiltroColNote] = useState("");
+  const [entrateMin, setEntrateMin] = useState("");
+  const [entrateMax, setEntrateMax] = useState("");
+  const [usciteMin, setUsciteMin] = useState("");
+  const [usciteMax, setUsciteMax] = useState("");
+  // null = nessun filtro (tutti i valori inclusi); altrimenti solo i valori nel set.
+  const [selCategorie, setSelCategorie] = useState<Set<string> | null>(null);
+  const [selTipi, setSelTipi] = useState<Set<string> | null>(null);
+  const [selConti, setSelConti] = useState<Set<string> | null>(null);
+
   const [mostraAI, setMostraAI] = useState(false);
   const [mostraNuovo, setMostraNuovo] = useState(false);
   const [mostraCoppie, setMostraCoppie] = useState(false);
   const [esitoImport, setEsitoImport] = useState("");
   // Selezione multipla per le modifiche in blocco.
   const [selezione, setSelezione] = useState<Set<string>>(new Set());
+  // Indice dell'ultima riga selezionata con click semplice: àncora per lo
+  // shift+click, che seleziona l'intero intervallo come in Excel.
+  const [ancoraSel, setAncoraSel] = useState<number | null>(null);
   // Su schermi piccoli i filtri partono chiusi (occupano molto spazio); su
   // desktop restano sempre visibili.
   const [filtriAperti, setFiltriAperti] = useState<boolean>(
@@ -197,16 +267,57 @@ export function Movimenti() {
     return m;
   }, [conti]);
 
+  // Valori proponibili nei filtri "a lista" delle intestazioni colonna (come
+  // il filtro automatico di Excel: elenco dei valori con checkbox).
+  const valoriCategoriaLista: VoceLista[] = useMemo(
+    () => [
+      { valore: "__vuota__", etichetta: "(nessuna)" },
+      ...categorie.map((c) => ({ valore: c, etichetta: c })),
+    ],
+    [categorie],
+  );
+  const valoriTipoLista: VoceLista[] = [
+    { valore: "", etichetta: "—" },
+    { valore: "giro", etichetta: "Giro" },
+    { valore: "interno", etichetta: "Interno" },
+    { valore: "mutuo", etichetta: "Mutuo" },
+  ];
+  const valoriContoLista: VoceLista[] = useMemo(
+    () => [
+      { valore: "__vuoto__", etichetta: "(nessuno)" },
+      ...conti.map((c) => ({ valore: c, etichetta: c })),
+    ],
+    [conti],
+  );
+
   const filtrate = useMemo(() => {
     const txt = filtroTesto.toLowerCase().trim();
     // parseNumeroIt accetta anche importi scritti all'italiana ("1.234,56").
     const min = parseNumeroIt(importoMin);
     const max = parseNumeroIt(importoMax);
+    const eMin = parseNumeroIt(entrateMin);
+    const eMax = parseNumeroIt(entrateMax);
+    const uMin = parseNumeroIt(usciteMin);
+    const uMax = parseNumeroIt(usciteMax);
+    const txtCausale = filtroColCausale.toLowerCase().trim();
+    const txtNote = filtroColNote.toLowerCase().trim();
     return dati.transazioni
       .filter((t) => {
         if (dataDa && t.data < dataDa) return false;
         if (dataA && t.data > dataA) return false;
         if (filtroConto && t.conto !== filtroConto) return false;
+        if (selConti && !selConti.has(t.conto || "__vuoto__")) return false;
+        if (selCategorie && !selCategorie.has(t.categoria || "__vuota__"))
+          return false;
+        if (selTipi && !selTipi.has(tipoSpecialeDi(t))) return false;
+        if (eMin !== undefined && (t.entrate ?? 0) < eMin) return false;
+        if (eMax !== undefined && (t.entrate ?? 0) > eMax) return false;
+        if (uMin !== undefined && (t.uscite ?? 0) < uMin) return false;
+        if (uMax !== undefined && (t.uscite ?? 0) > uMax) return false;
+        if (txtCausale && !(t.causale ?? "").toLowerCase().includes(txtCausale))
+          return false;
+        if (txtNote && !(t.note ?? "").toLowerCase().includes(txtNote))
+          return false;
         // Le annullate restano visibili in elenco (barrate) ma non compaiono
         // quando si filtra per un tipo specifico; "Annullate" le mostra da sole.
         if (filtroTipo === "annullate") return !!t.annullata;
@@ -245,7 +356,7 @@ export function Movimenti() {
         }
         return true;
       })
-      .sort((a, b) => b.data.localeCompare(a.data));
+      .sort(costruisciComparatore(ordine));
   }, [
     dati.transazioni,
     filtroTesto,
@@ -256,6 +367,16 @@ export function Movimenti() {
     filtroTipo,
     filtroCat,
     filtroConto,
+    entrateMin,
+    entrateMax,
+    usciteMin,
+    usciteMax,
+    filtroColCausale,
+    filtroColNote,
+    selCategorie,
+    selTipi,
+    selConti,
+    ordine,
   ]);
 
   // Totali del risultato filtrato: utili per rispondere a "quanto ho speso in X?".
@@ -283,16 +404,24 @@ export function Movimenti() {
       !t.annullata,
   ).length;
 
-  const numFiltriAttivi = [
-    filtroTesto,
-    dataDa,
-    dataA,
-    importoMin,
-    importoMax,
-    filtroTipo,
-    filtroCat,
-    filtroConto,
-  ].filter(Boolean).length;
+  const numFiltriAttivi =
+    [
+      filtroTesto,
+      dataDa,
+      dataA,
+      importoMin,
+      importoMax,
+      filtroTipo,
+      filtroCat,
+      filtroConto,
+      filtroColCausale,
+      filtroColNote,
+      entrateMin,
+      entrateMax,
+      usciteMin,
+      usciteMax,
+    ].filter(Boolean).length +
+    [selCategorie, selTipi, selConti].filter((s) => s !== null).length;
   const filtriAttivi = numFiltriAttivi > 0;
 
   function azzeraFiltri() {
@@ -304,6 +433,15 @@ export function Movimenti() {
     setFiltroTipo("");
     setFiltroCat("");
     setFiltroConto("");
+    setFiltroColCausale("");
+    setFiltroColNote("");
+    setEntrateMin("");
+    setEntrateMax("");
+    setUsciteMin("");
+    setUsciteMax("");
+    setSelCategorie(null);
+    setSelTipi(null);
+    setSelConti(null);
   }
 
   // ---------- Import CSV ----------
@@ -380,13 +518,33 @@ export function Movimenti() {
 
   // ---------- Selezione multipla / modifiche in blocco ----------
 
-  function toggleSel(id: string) {
+  /**
+   * Click semplice: alterna la riga e la ricorda come àncora. Shift+click (come
+   * in Excel/fogli di calcolo): seleziona l'intero intervallo tra l'àncora e la
+   * riga corrente (indici riferiti a `filtrate`, l'ordine mostrato in tabella).
+   */
+  function toggleSel(id: string, idx: number, shiftKey: boolean) {
+    if (shiftKey && ancoraSel !== null) {
+      const [lo, hi] = ancoraSel < idx ? [ancoraSel, idx] : [idx, ancoraSel];
+      const idsRange = filtrate.slice(lo, hi + 1).map((t) => t.id);
+      setSelezione((prev) => {
+        const next = new Set(prev);
+        idsRange.forEach((rid) => next.add(rid));
+        return next;
+      });
+      return;
+    }
+    setAncoraSel(idx);
     setSelezione((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
+  }
+
+  function ordina(campo: CampoOrdine, dir: "asc" | "desc") {
+    setOrdine({ campo, dir });
   }
 
   /** Seleziona/deseleziona tutte le righe filtrate (non solo quelle visibili). */
@@ -643,6 +801,36 @@ export function Movimenti() {
           onToggleSelTutte={toggleSelTutte}
           onModifica={modifica}
           onToggleAnnullata={toggleAnnullata}
+          fc={{
+            ordine,
+            onOrdina: ordina,
+            onCancellaOrdine: () => setOrdine(null),
+            dataDa,
+            setDataDa,
+            dataA,
+            setDataA,
+            entrateMin,
+            setEntrateMin,
+            entrateMax,
+            setEntrateMax,
+            usciteMin,
+            setUsciteMin,
+            usciteMax,
+            setUsciteMax,
+            filtroColCausale,
+            setFiltroColCausale,
+            filtroColNote,
+            setFiltroColNote,
+            selCategorie,
+            setSelCategorie,
+            selTipi,
+            setSelTipi,
+            selConti,
+            setSelConti,
+            valoriCategoriaLista,
+            valoriTipoLista,
+            valoriContoLista,
+          }}
         />
       )}
     </>
@@ -969,6 +1157,38 @@ function FormNuovoMovimento({
 
 // ---------- Tabella ----------
 
+/** Props del filtro/ordinamento per-colonna passate in blocco a `TabellaMovimenti`. */
+type FiltriColonna = {
+  ordine: OrdineColonna;
+  onOrdina: (campo: CampoOrdine, dir: "asc" | "desc") => void;
+  onCancellaOrdine: () => void;
+  dataDa: string;
+  setDataDa: (v: string) => void;
+  dataA: string;
+  setDataA: (v: string) => void;
+  entrateMin: string;
+  setEntrateMin: (v: string) => void;
+  entrateMax: string;
+  setEntrateMax: (v: string) => void;
+  usciteMin: string;
+  setUsciteMin: (v: string) => void;
+  usciteMax: string;
+  setUsciteMax: (v: string) => void;
+  filtroColCausale: string;
+  setFiltroColCausale: (v: string) => void;
+  filtroColNote: string;
+  setFiltroColNote: (v: string) => void;
+  selCategorie: Set<string> | null;
+  setSelCategorie: (s: Set<string> | null) => void;
+  selTipi: Set<string> | null;
+  setSelTipi: (s: Set<string> | null) => void;
+  selConti: Set<string> | null;
+  setSelConti: (s: Set<string> | null) => void;
+  valoriCategoriaLista: VoceLista[];
+  valoriTipoLista: VoceLista[];
+  valoriContoLista: VoceLista[];
+};
+
 function TabellaMovimenti({
   righe,
   totaleAttivi,
@@ -981,6 +1201,7 @@ function TabellaMovimenti({
   onToggleSelTutte,
   onModifica,
   onToggleAnnullata,
+  fc,
 }: {
   righe: Transazione[];
   totaleAttivi: number;
@@ -989,10 +1210,11 @@ function TabellaMovimenti({
   coloreConto: Record<string, string>;
   mostraConto: boolean;
   selezione: Set<string>;
-  onToggleSel: (id: string) => void;
+  onToggleSel: (id: string, idx: number, shiftKey: boolean) => void;
   onToggleSelTutte: () => void;
   onModifica: (id: string, patch: Partial<Transazione>) => void;
   onToggleAnnullata: (id: string) => void;
+  fc: FiltriColonna;
 }) {
   const LIMITE = 400;
   const visibili = righe.slice(0, LIMITE);
@@ -1001,6 +1223,9 @@ function TabellaMovimenti({
   // Il conteggio confronta solo le voci attive: le annullate sono in elenco
   // ma non "esistono".
   const attiveVisibili = righe.filter((t) => !t.annullata).length;
+  // Ricorda se l'ultimo click su un checkbox riga aveva Shift premuto: il
+  // click arriva prima del change, quindi lo leggiamo lì (come in Excel).
+  const shiftPremuto = useRef(false);
   return (
     <>
       <p className="muted" style={{ margin: "0 0 8px" }}>
@@ -1026,26 +1251,304 @@ function TabellaMovimenti({
                   type="checkbox"
                   checked={tutteSelezionate}
                   onChange={onToggleSelTutte}
-                  title="Seleziona/deseleziona tutte le righe filtrate"
+                  title="Seleziona/deseleziona tutte le righe filtrate. Shift+click su una riga seleziona l'intervallo, come in Excel."
                 />
               </th>
-              <th>Data</th>
-              {mostraConto && <th>Conto</th>}
-              <th>Causale</th>
-              <th className="num">Entrate</th>
-              <th className="num">Uscite</th>
-              <th>Categoria</th>
-              <th title="Marcatura speciale: Giro (PAC/investimenti), giroconto Interno tra conti propri, rata Mutuo">
-                Tipo
-              </th>
+              <ThFiltro
+                titolo="Data"
+                campo="data"
+                fc={fc}
+                attivo={!!fc.dataDa || !!fc.dataA}
+              >
+                {(chiudi) => (
+                  <>
+                    <div className="filtro-ordina">
+                      <button onClick={() => fc.onOrdina("data", "asc")}>
+                        ↑ Meno recenti prima
+                      </button>
+                      <button onClick={() => fc.onOrdina("data", "desc")}>
+                        ↓ Più recenti prima
+                      </button>
+                    </div>
+                    <label className="filtro-campo-pop">
+                      <span>Da</span>
+                      <input
+                        type="date"
+                        value={fc.dataDa}
+                        onChange={(e) => fc.setDataDa(e.target.value)}
+                      />
+                    </label>
+                    <label className="filtro-campo-pop">
+                      <span>A</span>
+                      <input
+                        type="date"
+                        value={fc.dataA}
+                        onChange={(e) => fc.setDataA(e.target.value)}
+                      />
+                    </label>
+                    <div className="filtro-pop-azioni">
+                      <button
+                        className="secondario"
+                        onClick={() => {
+                          fc.setDataDa("");
+                          fc.setDataA("");
+                        }}
+                      >
+                        Cancella filtro
+                      </button>
+                      <button className="primario" onClick={chiudi}>
+                        Chiudi
+                      </button>
+                    </div>
+                  </>
+                )}
+              </ThFiltro>
+              {mostraConto && (
+                <ThFiltro
+                  titolo="Conto"
+                  fc={fc}
+                  attivo={fc.selConti !== null}
+                >
+                  {(chiudi) => (
+                    <FiltroListaCorpo
+                      valori={fc.valoriContoLista}
+                      selezionati={fc.selConti}
+                      onCambia={fc.setSelConti}
+                      onChiudi={chiudi}
+                    />
+                  )}
+                </ThFiltro>
+              )}
+              <ThFiltro
+                titolo="Causale"
+                campo="causale"
+                fc={fc}
+                attivo={!!fc.filtroColCausale}
+              >
+                {(chiudi) => (
+                  <>
+                    <div className="filtro-ordina">
+                      <button onClick={() => fc.onOrdina("causale", "asc")}>
+                        A → Z
+                      </button>
+                      <button onClick={() => fc.onOrdina("causale", "desc")}>
+                        Z → A
+                      </button>
+                    </div>
+                    <input
+                      placeholder="Contiene…"
+                      value={fc.filtroColCausale}
+                      autoFocus
+                      onChange={(e) => fc.setFiltroColCausale(e.target.value)}
+                    />
+                    <div className="filtro-pop-azioni">
+                      <button
+                        className="secondario"
+                        onClick={() => fc.setFiltroColCausale("")}
+                      >
+                        Cancella filtro
+                      </button>
+                      <button className="primario" onClick={chiudi}>
+                        Chiudi
+                      </button>
+                    </div>
+                  </>
+                )}
+              </ThFiltro>
+              <ThFiltro
+                titolo="Entrate"
+                campo="entrate"
+                classeNum
+                fc={fc}
+                attivo={!!fc.entrateMin || !!fc.entrateMax}
+              >
+                {(chiudi) => (
+                  <>
+                    <div className="filtro-ordina">
+                      <button onClick={() => fc.onOrdina("entrate", "desc")}>
+                        Dal più alto
+                      </button>
+                      <button onClick={() => fc.onOrdina("entrate", "asc")}>
+                        Dal più basso
+                      </button>
+                    </div>
+                    <label className="filtro-campo-pop">
+                      <span>Min €</span>
+                      <input
+                        inputMode="decimal"
+                        value={fc.entrateMin}
+                        onChange={(e) => fc.setEntrateMin(e.target.value)}
+                      />
+                    </label>
+                    <label className="filtro-campo-pop">
+                      <span>Max €</span>
+                      <input
+                        inputMode="decimal"
+                        value={fc.entrateMax}
+                        onChange={(e) => fc.setEntrateMax(e.target.value)}
+                      />
+                    </label>
+                    <div className="filtro-pop-azioni">
+                      <button
+                        className="secondario"
+                        onClick={() => {
+                          fc.setEntrateMin("");
+                          fc.setEntrateMax("");
+                        }}
+                      >
+                        Cancella filtro
+                      </button>
+                      <button className="primario" onClick={chiudi}>
+                        Chiudi
+                      </button>
+                    </div>
+                  </>
+                )}
+              </ThFiltro>
+              <ThFiltro
+                titolo="Uscite"
+                campo="uscite"
+                classeNum
+                fc={fc}
+                attivo={!!fc.usciteMin || !!fc.usciteMax}
+              >
+                {(chiudi) => (
+                  <>
+                    <div className="filtro-ordina">
+                      <button onClick={() => fc.onOrdina("uscite", "desc")}>
+                        Dal più alto
+                      </button>
+                      <button onClick={() => fc.onOrdina("uscite", "asc")}>
+                        Dal più basso
+                      </button>
+                    </div>
+                    <label className="filtro-campo-pop">
+                      <span>Min €</span>
+                      <input
+                        inputMode="decimal"
+                        value={fc.usciteMin}
+                        onChange={(e) => fc.setUsciteMin(e.target.value)}
+                      />
+                    </label>
+                    <label className="filtro-campo-pop">
+                      <span>Max €</span>
+                      <input
+                        inputMode="decimal"
+                        value={fc.usciteMax}
+                        onChange={(e) => fc.setUsciteMax(e.target.value)}
+                      />
+                    </label>
+                    <div className="filtro-pop-azioni">
+                      <button
+                        className="secondario"
+                        onClick={() => {
+                          fc.setUsciteMin("");
+                          fc.setUsciteMax("");
+                        }}
+                      >
+                        Cancella filtro
+                      </button>
+                      <button className="primario" onClick={chiudi}>
+                        Chiudi
+                      </button>
+                    </div>
+                  </>
+                )}
+              </ThFiltro>
+              <ThFiltro
+                titolo="Categoria"
+                campo="categoria"
+                fc={fc}
+                attivo={fc.selCategorie !== null}
+              >
+                {(chiudi) => (
+                  <>
+                    <div className="filtro-ordina">
+                      <button onClick={() => fc.onOrdina("categoria", "asc")}>
+                        A → Z
+                      </button>
+                      <button onClick={() => fc.onOrdina("categoria", "desc")}>
+                        Z → A
+                      </button>
+                    </div>
+                    <FiltroListaCorpo
+                      valori={fc.valoriCategoriaLista}
+                      selezionati={fc.selCategorie}
+                      onCambia={fc.setSelCategorie}
+                      onChiudi={chiudi}
+                    />
+                  </>
+                )}
+              </ThFiltro>
+              <ThFiltro
+                titolo="Tipo"
+                campo="tipo"
+                fc={fc}
+                attivo={fc.selTipi !== null}
+                titoloIntestazione="Marcatura speciale: Giro (PAC/investimenti), giroconto Interno tra conti propri, rata Mutuo"
+              >
+                {(chiudi) => (
+                  <>
+                    <div className="filtro-ordina">
+                      <button onClick={() => fc.onOrdina("tipo", "asc")}>
+                        A → Z
+                      </button>
+                      <button onClick={() => fc.onOrdina("tipo", "desc")}>
+                        Z → A
+                      </button>
+                    </div>
+                    <FiltroListaCorpo
+                      valori={fc.valoriTipoLista}
+                      selezionati={fc.selTipi}
+                      onCambia={fc.setSelTipi}
+                      onChiudi={chiudi}
+                    />
+                  </>
+                )}
+              </ThFiltro>
               <th>Fatt.</th>
               <th>Tasse</th>
-              <th>Note</th>
+              <ThFiltro
+                titolo="Note"
+                campo="note"
+                fc={fc}
+                attivo={!!fc.filtroColNote}
+              >
+                {(chiudi) => (
+                  <>
+                    <div className="filtro-ordina">
+                      <button onClick={() => fc.onOrdina("note", "asc")}>
+                        A → Z
+                      </button>
+                      <button onClick={() => fc.onOrdina("note", "desc")}>
+                        Z → A
+                      </button>
+                    </div>
+                    <input
+                      placeholder="Contiene…"
+                      value={fc.filtroColNote}
+                      autoFocus
+                      onChange={(e) => fc.setFiltroColNote(e.target.value)}
+                    />
+                    <div className="filtro-pop-azioni">
+                      <button
+                        className="secondario"
+                        onClick={() => fc.setFiltroColNote("")}
+                      >
+                        Cancella filtro
+                      </button>
+                      <button className="primario" onClick={chiudi}>
+                        Chiudi
+                      </button>
+                    </div>
+                  </>
+                )}
+              </ThFiltro>
               <th></th>
             </tr>
           </thead>
           <tbody>
-            {visibili.map((t) => (
+            {visibili.map((t, idx) => (
               <tr
                 key={t.id}
                 className={
@@ -1059,7 +1562,12 @@ function TabellaMovimenti({
                   <input
                     type="checkbox"
                     checked={selezione.has(t.id)}
-                    onChange={() => onToggleSel(t.id)}
+                    onClick={(e) => {
+                      shiftPremuto.current = e.shiftKey;
+                    }}
+                    onChange={() =>
+                      onToggleSel(t.id, idx, shiftPremuto.current)
+                    }
                   />
                 </td>
                 <td>{t.data}</td>
@@ -1198,6 +1706,184 @@ function TabellaMovimenti({
           restringere.
         </p>
       )}
+    </>
+  );
+}
+
+// ---------- Intestazione colonna con filtro/ordinamento (stile Excel) ----------
+
+/** Intestazione con un menu a tendina per ordinare/filtrare quella colonna,
+ * sullo stesso principio del filtro automatico di Excel. Il contenuto del
+ * menu è passato come children (render prop) così ogni colonna può avere il
+ * proprio corpo (intervallo date, min/max, lista di valori, "contiene…"). */
+function ThFiltro({
+  titolo,
+  campo,
+  classeNum,
+  attivo,
+  titoloIntestazione,
+  fc,
+  children,
+}: {
+  titolo: string;
+  campo?: CampoOrdine;
+  classeNum?: boolean;
+  attivo?: boolean;
+  titoloIntestazione?: string;
+  fc: FiltriColonna;
+  children: (chiudi: () => void) => React.ReactNode;
+}) {
+  const [aperto, setAperto] = useState(false);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState({ top: 0, right: 0 });
+  const chiudi = () => setAperto(false);
+
+  // Il popover va in un portal su <body> con position:fixed (coordinate
+  // ricalcolate dal bottone): la tabella scrolla in orizzontale
+  // (.tabella-wrap overflow-x:auto), il che clipperebbe un popover
+  // posizionato normalmente dentro la cella d'intestazione.
+  useEffect(() => {
+    if (!aperto) return;
+    function riposiziona() {
+      const r = btnRef.current?.getBoundingClientRect();
+      if (r) setPos({ top: r.bottom + 4, right: window.innerWidth - r.right });
+    }
+    riposiziona();
+    function fuori(e: MouseEvent) {
+      const target = e.target as Node;
+      if (popRef.current?.contains(target) || btnRef.current?.contains(target))
+        return;
+      setAperto(false);
+    }
+    window.addEventListener("scroll", riposiziona, true);
+    window.addEventListener("resize", riposiziona);
+    document.addEventListener("mousedown", fuori);
+    return () => {
+      window.removeEventListener("scroll", riposiziona, true);
+      window.removeEventListener("resize", riposiziona);
+      document.removeEventListener("mousedown", fuori);
+    };
+  }, [aperto]);
+
+  const freccia =
+    campo && fc.ordine?.campo === campo
+      ? fc.ordine.dir === "asc"
+        ? " ▲"
+        : " ▼"
+      : "";
+  return (
+    <th className={classeNum ? "num" : undefined} title={titoloIntestazione}>
+      <span className="th-riga">
+        <span className="th-testo">
+          {titolo}
+          {freccia}
+        </span>
+        <button
+          type="button"
+          ref={btnRef}
+          className={
+            "th-filtro-btn" +
+            (aperto ? " th-filtro-aperto" : "") +
+            (attivo ? " th-filtro-attivo" : "")
+          }
+          title={`Filtra/ordina ${titolo}`}
+          onClick={() => setAperto((v) => !v)}
+        >
+          ▾
+        </button>
+      </span>
+      {aperto &&
+        createPortal(
+          <div
+            ref={popRef}
+            className="filtro-pop"
+            style={{ top: pos.top, right: pos.right }}
+          >
+            {children(chiudi)}
+          </div>,
+          document.body,
+        )}
+    </th>
+  );
+}
+
+/** Corpo del filtro "a lista" (checkbox), come il menu del filtro automatico
+ * di Excel: casella di ricerca, "Seleziona tutto" e l'elenco dei valori. */
+function FiltroListaCorpo({
+  valori,
+  selezionati,
+  onCambia,
+  onChiudi,
+}: {
+  valori: VoceLista[];
+  selezionati: Set<string> | null;
+  onCambia: (s: Set<string> | null) => void;
+  onChiudi: () => void;
+}) {
+  const [cerca, setCerca] = useState("");
+  const attivi = selezionati ?? new Set(valori.map((v) => v.valore));
+  const filtrati = valori.filter((v) =>
+    v.etichetta.toLowerCase().includes(cerca.toLowerCase()),
+  );
+  const tutteSelezionate =
+    filtrati.length > 0 && filtrati.every((v) => attivi.has(v.valore));
+
+  function normalizza(s: Set<string>): Set<string> | null {
+    return s.size === valori.length ? null : s;
+  }
+
+  function toggleValore(v: string) {
+    const next = new Set(attivi);
+    if (next.has(v)) next.delete(v);
+    else next.add(v);
+    onCambia(normalizza(next));
+  }
+
+  function toggleTutti() {
+    const next = new Set(attivi);
+    if (tutteSelezionate) filtrati.forEach((v) => next.delete(v.valore));
+    else filtrati.forEach((v) => next.add(v.valore));
+    onCambia(normalizza(next));
+  }
+
+  return (
+    <>
+      <input
+        placeholder="Cerca…"
+        value={cerca}
+        autoFocus
+        onChange={(e) => setCerca(e.target.value)}
+      />
+      <label className="filtro-lista-voce filtro-lista-tutto">
+        <input type="checkbox" checked={tutteSelezionate} onChange={toggleTutti} />
+        <b>Seleziona tutto</b>
+      </label>
+      <div className="filtro-lista-scroll">
+        {filtrati.map((v) => (
+          <label key={v.valore} className="filtro-lista-voce">
+            <input
+              type="checkbox"
+              checked={attivi.has(v.valore)}
+              onChange={() => toggleValore(v.valore)}
+            />
+            {v.etichetta}
+          </label>
+        ))}
+        {filtrati.length === 0 && (
+          <span className="muted" style={{ fontSize: 12 }}>
+            Nessun valore trovato.
+          </span>
+        )}
+      </div>
+      <div className="filtro-pop-azioni">
+        <button className="secondario" onClick={() => onCambia(null)}>
+          Cancella filtro
+        </button>
+        <button className="primario" onClick={onChiudi}>
+          Chiudi
+        </button>
+      </div>
     </>
   );
 }
