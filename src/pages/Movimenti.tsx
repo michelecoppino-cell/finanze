@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useApp } from "../store/AppStore";
 import { Transazione } from "../types";
-import { euro, numero, parseNumeroIt } from "../util";
+import { euro, numero, parseNumeroIt, uid } from "../util";
 import {
   parseCsv,
   indovinaMappatura,
@@ -10,7 +10,23 @@ import {
   MappaturaCsv,
 } from "../store/io";
 
-type Tipo = "" | "entrate" | "uscite" | "trasferimenti";
+type Tipo = "" | "entrate" | "uscite" | "trasferimenti" | "annullate";
+
+/** Azioni applicabili in blocco ai movimenti selezionati. */
+const AZIONI_BULK: { id: string; nome: string; patch: Partial<Transazione> }[] = [
+  { id: "annulla", nome: "Annulla voci", patch: { annullata: true } },
+  { id: "ripristina", nome: "Ripristina voci", patch: { annullata: undefined } },
+  {
+    id: "giro-si",
+    nome: "Segna come giroconto",
+    patch: { trasferimento: true, categoria: undefined },
+  },
+  { id: "giro-no", nome: "Togli giroconto", patch: { trasferimento: undefined } },
+  { id: "fatt-si", nome: "Segna come fattura", patch: { fattura: true } },
+  { id: "fatt-no", nome: "Togli fattura", patch: { fattura: undefined } },
+  { id: "tasse-si", nome: "Segna come tasse", patch: { tasse: true } },
+  { id: "tasse-no", nome: "Togli tasse", patch: { tasse: undefined } },
+];
 
 export function Movimenti() {
   const { dati, aggiorna } = useApp();
@@ -31,7 +47,10 @@ export function Movimenti() {
   const [filtroCat, setFiltroCat] = useState("");
 
   const [mostraAI, setMostraAI] = useState(false);
+  const [mostraNuovo, setMostraNuovo] = useState(false);
   const [esitoImport, setEsitoImport] = useState("");
+  // Selezione multipla per le modifiche in blocco.
+  const [selezione, setSelezione] = useState<Set<string>>(new Set());
   // Su schermi piccoli i filtri partono chiusi (occupano molto spazio); su
   // desktop restano sempre visibili.
   const [filtriAperti, setFiltriAperti] = useState<boolean>(
@@ -41,6 +60,8 @@ export function Movimenti() {
   );
 
   const categorie = dati.categorie.map((c) => c.nome);
+  const numAnnullate = dati.transazioni.filter((t) => t.annullata).length;
+  const numAttive = dati.transazioni.length - numAnnullate;
 
   const filtrate = useMemo(() => {
     const txt = filtroTesto.toLowerCase().trim();
@@ -51,6 +72,10 @@ export function Movimenti() {
       .filter((t) => {
         if (dataDa && t.data < dataDa) return false;
         if (dataA && t.data > dataA) return false;
+        // Le annullate restano visibili in elenco (barrate) ma non compaiono
+        // quando si filtra per un tipo specifico; "Annullate" le mostra da sole.
+        if (filtroTipo === "annullate") return !!t.annullata;
+        if (t.annullata && filtroTipo) return false;
         if (filtroTipo === "entrate" && !t.entrate) return false;
         if (filtroTipo === "uscite" && !(t.uscite && !t.trasferimento))
           return false;
@@ -92,10 +117,12 @@ export function Movimenti() {
   ]);
 
   // Totali del risultato filtrato: utili per rispondere a "quanto ho speso in X?".
+  // Le voci annullate non contano (come ovunque nei calcoli).
   const totaliFiltrati = useMemo(() => {
     let entrate = 0;
     let uscite = 0;
     for (const t of filtrate) {
+      if (t.annullata) continue;
       if (t.entrate) entrate += t.entrate;
       if (t.uscite && !t.trasferimento) uscite += t.uscite;
     }
@@ -103,7 +130,7 @@ export function Movimenti() {
   }, [filtrate]);
 
   const nonCategorizzate = dati.transazioni.filter(
-    (t) => t.uscite && !t.categoria && !t.trasferimento,
+    (t) => t.uscite && !t.categoria && !t.trasferimento && !t.annullata,
   ).length;
 
   const numFiltriAttivi = [
@@ -181,11 +208,64 @@ export function Movimenti() {
     }));
   }
 
-  function elimina(id: string) {
+  // "Cancellazione" soft: la voce resta in elenco (grigia e barrata) ma sparisce
+  // da tutti i calcoli. Ripremendo si ripristina.
+  function toggleAnnullata(id: string) {
     aggiorna((d) => ({
       ...d,
-      transazioni: d.transazioni.filter((t) => t.id !== id),
+      transazioni: d.transazioni.map((t) =>
+        t.id === id ? { ...t, annullata: t.annullata ? undefined : true } : t,
+      ),
     }));
+  }
+
+  // ---------- Selezione multipla / modifiche in blocco ----------
+
+  function toggleSel(id: string) {
+    setSelezione((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  /** Seleziona/deseleziona tutte le righe filtrate (non solo quelle visibili). */
+  function toggleSelTutte() {
+    setSelezione((prev) =>
+      prev.size === filtrate.length
+        ? new Set()
+        : new Set(filtrate.map((t) => t.id)),
+    );
+  }
+
+  function applicaBulk(patch: Partial<Transazione>) {
+    aggiorna((d) => ({
+      ...d,
+      transazioni: d.transazioni.map((t) =>
+        selezione.has(t.id) ? { ...t, ...patch } : t,
+      ),
+    }));
+  }
+
+  function applicaBulkCategoria(cat: string) {
+    aggiorna((d) => ({
+      ...d,
+      transazioni: d.transazioni.map((t) =>
+        // I trasferimenti non hanno categoria di spesa: vengono saltati.
+        selezione.has(t.id) && !t.trasferimento
+          ? { ...t, categoria: cat || undefined }
+          : t,
+      ),
+    }));
+  }
+
+  // ---------- Aggiunta manuale ----------
+
+  function aggiungiMovimento(t: Transazione) {
+    aggiorna((d) => ({ ...d, transazioni: [...d.transazioni, t] }));
+    setMostraNuovo(false);
+    setEsitoImport("Movimento aggiunto.");
   }
 
   return (
@@ -200,6 +280,9 @@ export function Movimenti() {
             style={{ display: "none" }}
           />
         </label>
+        <button className="secondario" onClick={() => setMostraNuovo((v) => !v)}>
+          + Aggiungi movimento
+        </button>
         <button
           className="secondario"
           onClick={() => setMostraAI((v) => !v)}
@@ -211,11 +294,20 @@ export function Movimenti() {
           )}
         </button>
         <span className="muted">
-          {numero(dati.transazioni.length)} movimenti ·{" "}
-          {numero(nonCategorizzate)} da categorizzare
+          {numero(numAttive)} movimenti · {numero(nonCategorizzate)} da
+          categorizzare
+          {numAnnullate > 0 && <> · {numero(numAnnullate)} annullati</>}
         </span>
         {esitoImport && <span className="chip">{esitoImport}</span>}
       </div>
+
+      {mostraNuovo && (
+        <FormNuovoMovimento
+          categorie={categorie}
+          onAggiungi={aggiungiMovimento}
+          onAnnulla={() => setMostraNuovo(false)}
+        />
+      )}
 
       {importCsv && (
         <MappaturaImport
@@ -284,6 +376,7 @@ export function Movimenti() {
             <option value="entrate">Entrate</option>
             <option value="uscite">Uscite</option>
             <option value="trasferimenti">Trasferimenti</option>
+            <option value="annullate">Annullate</option>
           </select>
           <select
             value={filtroCat}
@@ -306,6 +399,16 @@ export function Movimenti() {
         </div>
       )}
 
+      {selezione.size > 0 && (
+        <BarraSelezione
+          n={selezione.size}
+          categorie={categorie}
+          onCategoria={applicaBulkCategoria}
+          onAzione={applicaBulk}
+          onDeseleziona={() => setSelezione(new Set())}
+        />
+      )}
+
       {dati.transazioni.length === 0 ? (
         <div className="card vuoto">
           Nessun movimento. Importa un CSV del tuo conto per iniziare, oppure
@@ -314,14 +417,193 @@ export function Movimenti() {
       ) : (
         <TabellaMovimenti
           righe={filtrate}
-          totale={dati.transazioni.length}
+          totaleAttivi={numAttive}
           totaliFiltrati={filtriAttivi ? totaliFiltrati : undefined}
           categorie={categorie}
+          selezione={selezione}
+          onToggleSel={toggleSel}
+          onToggleSelTutte={toggleSelTutte}
           onModifica={modifica}
-          onElimina={elimina}
+          onToggleAnnullata={toggleAnnullata}
         />
       )}
     </>
+  );
+}
+
+// ---------- Barra azioni per la selezione multipla ----------
+
+function BarraSelezione({
+  n,
+  categorie,
+  onCategoria,
+  onAzione,
+  onDeseleziona,
+}: {
+  n: number;
+  categorie: string[];
+  onCategoria: (cat: string) => void;
+  onAzione: (patch: Partial<Transazione>) => void;
+  onDeseleziona: () => void;
+}) {
+  const [cat, setCat] = useState("");
+  const [azione, setAzione] = useState("");
+
+  return (
+    <div className="card barra-selezione">
+      <b>{numero(n)} selezionati</b>
+      <span className="barra-gruppo">
+        <select value={cat} onChange={(e) => setCat(e.target.value)}>
+          <option value="">Categoria…</option>
+          <option value="__togli__">— nessuna —</option>
+          {categorie.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
+        <button
+          className="secondario"
+          disabled={!cat}
+          onClick={() => onCategoria(cat === "__togli__" ? "" : cat)}
+        >
+          Applica
+        </button>
+      </span>
+      <span className="barra-gruppo">
+        <select value={azione} onChange={(e) => setAzione(e.target.value)}>
+          <option value="">Azione…</option>
+          {AZIONI_BULK.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.nome}
+            </option>
+          ))}
+        </select>
+        <button
+          className="secondario"
+          disabled={!azione}
+          onClick={() => {
+            const a = AZIONI_BULK.find((x) => x.id === azione);
+            if (a) onAzione(a.patch);
+          }}
+        >
+          Applica
+        </button>
+      </span>
+      <button className="secondario" onClick={onDeseleziona}>
+        Deseleziona
+      </button>
+    </div>
+  );
+}
+
+// ---------- Aggiunta manuale di un movimento ----------
+
+function FormNuovoMovimento({
+  categorie,
+  onAggiungi,
+  onAnnulla,
+}: {
+  categorie: string[];
+  onAggiungi: (t: Transazione) => void;
+  onAnnulla: () => void;
+}) {
+  const [data, setData] = useState(new Date().toISOString().slice(0, 10));
+  const [causale, setCausale] = useState("");
+  const [verso, setVerso] = useState<"uscita" | "entrata">("uscita");
+  const [importo, setImporto] = useState("");
+  const [categoria, setCategoria] = useState("");
+  const [note, setNote] = useState("");
+
+  const imp = parseNumeroIt(importo);
+  const valido = !!data && imp !== undefined && imp > 0;
+
+  function conferma() {
+    if (!valido) return;
+    const v = Math.abs(imp!);
+    onAggiungi({
+      id: uid(),
+      data,
+      causale: causale.trim() || undefined,
+      tipologia: "Manuale",
+      entrate: verso === "entrata" ? v : undefined,
+      uscite: verso === "uscita" ? v : undefined,
+      categoria: categoria || undefined,
+      note: note.trim() || undefined,
+    });
+  }
+
+  return (
+    <div className="card">
+      <h3>Nuovo movimento manuale</h3>
+      <p className="muted" style={{ marginTop: -4 }}>
+        Per correzioni o spese non tracciate (es. contanti). Viene marcato con
+        tipologia &quot;Manuale&quot;.
+      </p>
+      <div className="form-griglia">
+        <label className="campo">
+          Data
+          <input
+            type="date"
+            value={data}
+            onChange={(e) => setData(e.target.value)}
+          />
+        </label>
+        <label className="campo">
+          Causale
+          <input
+            placeholder="es. Spesa in contanti al mercato"
+            value={causale}
+            onChange={(e) => setCausale(e.target.value)}
+          />
+        </label>
+        <label className="campo">
+          Tipo
+          <select
+            value={verso}
+            onChange={(e) => setVerso(e.target.value as "uscita" | "entrata")}
+          >
+            <option value="uscita">Uscita</option>
+            <option value="entrata">Entrata</option>
+          </select>
+        </label>
+        <label className="campo">
+          Importo (€)
+          <input
+            inputMode="decimal"
+            placeholder="es. 25,50"
+            value={importo}
+            onChange={(e) => setImporto(e.target.value)}
+          />
+        </label>
+        <label className="campo">
+          Categoria
+          <select
+            value={categoria}
+            onChange={(e) => setCategoria(e.target.value)}
+          >
+            <option value="">—</option>
+            {categorie.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="campo">
+          Note
+          <input value={note} onChange={(e) => setNote(e.target.value)} />
+        </label>
+      </div>
+      <div className="riga-azioni" style={{ marginTop: 14 }}>
+        <button className="primario" onClick={conferma} disabled={!valido}>
+          Aggiungi
+        </button>
+        <button className="secondario" onClick={onAnnulla}>
+          Annulla
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -329,27 +611,38 @@ export function Movimenti() {
 
 function TabellaMovimenti({
   righe,
-  totale,
+  totaleAttivi,
   totaliFiltrati,
   categorie,
+  selezione,
+  onToggleSel,
+  onToggleSelTutte,
   onModifica,
-  onElimina,
+  onToggleAnnullata,
 }: {
   righe: Transazione[];
-  totale: number;
+  totaleAttivi: number;
   totaliFiltrati?: { entrate: number; uscite: number };
   categorie: string[];
+  selezione: Set<string>;
+  onToggleSel: (id: string) => void;
+  onToggleSelTutte: () => void;
   onModifica: (id: string, patch: Partial<Transazione>) => void;
-  onElimina: (id: string) => void;
+  onToggleAnnullata: (id: string) => void;
 }) {
   const LIMITE = 400;
   const visibili = righe.slice(0, LIMITE);
+  const tutteSelezionate =
+    righe.length > 0 && selezione.size === righe.length;
+  // Il conteggio confronta solo le voci attive: le annullate sono in elenco
+  // ma non "esistono".
+  const attiveVisibili = righe.filter((t) => !t.annullata).length;
   return (
     <>
       <p className="muted" style={{ margin: "0 0 8px" }}>
-        {righe.length === totale
-          ? `${numero(totale)} movimenti`
-          : `${numero(righe.length)} di ${numero(totale)} movimenti (filtrati)`}
+        {attiveVisibili === totaleAttivi
+          ? `${numero(totaleAttivi)} movimenti`
+          : `${numero(attiveVisibili)} di ${numero(totaleAttivi)} movimenti (filtrati)`}
         {totaliFiltrati && (
           <>
             {" · "}
@@ -364,6 +657,14 @@ function TabellaMovimenti({
         <table>
           <thead>
             <tr>
+              <th>
+                <input
+                  type="checkbox"
+                  checked={tutteSelezionate}
+                  onChange={onToggleSelTutte}
+                  title="Seleziona/deseleziona tutte le righe filtrate"
+                />
+              </th>
               <th>Data</th>
               <th>Causale</th>
               <th className="num">Entrate</th>
@@ -374,23 +675,40 @@ function TabellaMovimenti({
               </th>
               <th>Fatt.</th>
               <th>Tasse</th>
+              <th>Note</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
             {visibili.map((t) => (
-              <tr key={t.id} className={t.trasferimento ? "riga-trasf" : ""}>
+              <tr
+                key={t.id}
+                className={
+                  (t.trasferimento ? "riga-trasf " : "") +
+                  (t.annullata ? "riga-annullata" : "")
+                }
+              >
+                <td>
+                  <input
+                    type="checkbox"
+                    checked={selezione.has(t.id)}
+                    onChange={() => onToggleSel(t.id)}
+                  />
+                </td>
                 <td>{t.data}</td>
-                <td title={t.causale}>
+                <td title={t.causale} className="cella-causale">
                   {(t.causale ?? "").slice(0, 46) || (
                     <span className="muted">{t.tipologia}</span>
                   )}
                 </td>
-                <td className="num entrata">
+                <td className="num entrata cella-importo">
                   {t.entrate ? euro(t.entrate, true) : ""}
                 </td>
                 <td
-                  className={"num " + (t.trasferimento ? "muted" : "uscita")}
+                  className={
+                    "num cella-importo " +
+                    (t.trasferimento ? "muted" : "uscita")
+                  }
                   title={t.trasferimento ? "Trasferimento (non è una spesa)" : ""}
                 >
                   {t.uscite ? euro(t.uscite, true) : ""}
@@ -398,7 +716,7 @@ function TabellaMovimenti({
                 <td>
                   <select
                     value={t.categoria ?? ""}
-                    disabled={t.trasferimento}
+                    disabled={t.trasferimento || t.annullata}
                     onChange={(e) =>
                       onModifica(t.id, {
                         categoria: e.target.value || undefined,
@@ -417,6 +735,7 @@ function TabellaMovimenti({
                   <input
                     type="checkbox"
                     checked={!!t.trasferimento}
+                    disabled={t.annullata}
                     title="Segna come trasferimento/giroconto (es. PAC su Scalable)"
                     onChange={(e) =>
                       onModifica(t.id, {
@@ -431,6 +750,7 @@ function TabellaMovimenti({
                   <input
                     type="checkbox"
                     checked={!!t.fattura}
+                    disabled={t.annullata}
                     onChange={(e) =>
                       onModifica(t.id, { fattura: e.target.checked })
                     }
@@ -440,8 +760,19 @@ function TabellaMovimenti({
                   <input
                     type="checkbox"
                     checked={!!t.tasse}
+                    disabled={t.annullata}
                     onChange={(e) =>
                       onModifica(t.id, { tasse: e.target.checked })
+                    }
+                  />
+                </td>
+                <td>
+                  <input
+                    className="cella-note"
+                    placeholder="…"
+                    value={t.note ?? ""}
+                    onChange={(e) =>
+                      onModifica(t.id, { note: e.target.value || undefined })
                     }
                   />
                 </td>
@@ -449,10 +780,14 @@ function TabellaMovimenti({
                   <button
                     className="secondario"
                     style={{ padding: "2px 8px" }}
-                    onClick={() => onElimina(t.id)}
-                    title="Elimina"
+                    onClick={() => onToggleAnnullata(t.id)}
+                    title={
+                      t.annullata
+                        ? "Ripristina questo movimento"
+                        : "Annulla: resta in elenco (barrato) ma sparisce dai calcoli"
+                    }
                   >
-                    ✕
+                    {t.annullata ? "↩" : "✕"}
                   </button>
                 </td>
               </tr>
@@ -589,9 +924,10 @@ function PannelloAI({ onChiudi }: { onChiudi: () => void }) {
   const [risultato, setRisultato] = useState("");
   const [esito, setEsito] = useState("");
 
-  // I trasferimenti non sono spese: fuori dalla categorizzazione.
+  // I trasferimenti non sono spese e le voci annullate non esistono:
+  // fuori dalla categorizzazione.
   const daFare = dati.transazioni.filter(
-    (t) => t.uscite && !t.categoria && !t.trasferimento,
+    (t) => t.uscite && !t.categoria && !t.trasferimento && !t.annullata,
   );
 
   const prompt = buildPromptCategorizzazione(dati.categorie, daFare);

@@ -14,6 +14,7 @@ import { useApp } from "../store/AppStore";
 import { EventoFuturo, Investimento } from "../types";
 import { calcolaProiezione, campionaMesi } from "../engine/proiezione";
 import { euro, uid } from "../util";
+import { Info } from "../components/Info";
 
 const COL_LIQ = "#4c78a8"; // liquido
 const COL_CAP = "#8a94a6"; // capitale investito
@@ -108,21 +109,46 @@ export function Proiezione() {
     <>
       <div className="stat-griglia">
         <div className="stat">
-          <div className="etichetta">Patrimonio netto oggi</div>
+          <div className="etichetta">
+            Patrimonio netto oggi
+            <Info>
+              Punto di partenza della proiezione: liquido attuale (dalla pagina{" "}
+              <b>Saldo reale</b>, curva potere d'acquisto) + capitale investito
+              + guadagni maturati al primo mese proiettato.
+            </Info>
+          </div>
           <div className="valore">{euro(ris.patrimonioOggi)}</div>
           <div className="muted" style={{ fontSize: 12 }}>
             liquido + investimenti
           </div>
         </div>
         <div className="stat">
-          <div className="etichetta">Capitale a {p.etaPensione ?? 67} anni</div>
+          <div className="etichetta">
+            Capitale a {p.etaPensione ?? 67} anni
+            <Info>
+              Proiezione mese per mese fino al {annoPensione}: liquido (+
+              risparmi degli scenari − spese grosse − versamenti negli
+              investimenti) + capitale versato + interessi composti al tasso
+              reale di ogni tranche. Tutto in € di oggi (inflazione già
+              scontata nei tassi).
+            </Info>
+          </div>
           <div className="valore">{euro(ris.capitalePensione)}</div>
           <div className="muted" style={{ fontSize: 12 }}>
             nel {annoPensione}, in € di oggi
           </div>
         </div>
         <div className="stat">
-          <div className="etichetta">Rendita integrativa /anno — LORDA</div>
+          <div className="etichetta">
+            Rendita integrativa /anno — LORDA
+            <Info>
+              <b>Rendita lorda</b> = capitale a pensione × tasso di prelievo.
+              <br />
+              {euro(ris.capitalePensione, true)} ×{" "}
+              {((p.tassoRendita ?? 0.035) * 100).toFixed(1)}% ={" "}
+              <b>{euro(ris.renditaAnnua, true)}</b>/anno
+            </Info>
+          </div>
           <div className="valore">{euro(ris.renditaAnnua)}</div>
           <div className="muted" style={{ fontSize: 12 }}>
             ~{euro(ris.renditaMensile)}/mese · prelievo{" "}
@@ -130,7 +156,17 @@ export function Proiezione() {
           </div>
         </div>
         <div className="stat">
-          <div className="etichetta">Rendita netta stimata /anno</div>
+          <div className="etichetta">
+            Rendita netta stimata /anno
+            <Info>
+              <b>Rendita netta</b> = rendita lorda × (1 − aliquota di
+              tassazione).
+              <br />
+              {euro(ris.renditaAnnua, true)} × (1 −{" "}
+              {(aliquotaRendita * 100).toFixed(0)}%) ={" "}
+              <b>{euro(renditaNettaAnnua, true)}</b>/anno
+            </Info>
+          </div>
           <div className="valore" style={{ color: COL_GAIN }}>
             {euro(renditaNettaAnnua)}
           </div>

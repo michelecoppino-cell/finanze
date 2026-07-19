@@ -65,25 +65,51 @@ const FMT_EUR2 = new Intl.NumberFormat("it-IT", {
 });
 const FMT_NUM = new Intl.NumberFormat("it-IT", { maximumFractionDigits: 0 });
 
-/** Separatore delle migliaia: puntino alto, per distinguerlo dai decimali. */
-const SEP_MIGLIAIA = "·";
+/**
+ * Separatore delle migliaia: apostrofo tipografico (stile svizzero, 4’000).
+ * Distingue a colpo d'occhio le migliaia dalla virgola dei decimali.
+ */
+const SEP_MIGLIAIA = "’";
 
-function conPuntinoAlto(fmt: Intl.NumberFormat, n: number): string {
-  return fmt
-    .formatToParts(n)
-    .map((p) => (p.type === "group" ? SEP_MIGLIAIA : p.value))
-    .join("");
+/** Inserisce il separatore ogni 3 cifre (anche sui numeri a 4 cifre). */
+function raggruppa(cifre: string): string {
+  return cifre.replace(/\B(?=(\d{3})+(?!\d))/g, SEP_MIGLIAIA);
+}
+
+/**
+ * Formatta con Intl ma raggruppa le migliaia a mano: il locale italiano non
+ * separa i numeri a 4 cifre (4000 resta "4000"), qui invece vogliamo sempre
+ * il separatore (4’000).
+ */
+function conSeparatore(fmt: Intl.NumberFormat, n: number): string {
+  const parti = fmt.formatToParts(n);
+  let out = "";
+  let intere = "";
+  for (const p of parti) {
+    if (p.type === "integer") {
+      intere += p.value;
+      continue;
+    }
+    if (p.type === "group") continue;
+    if (intere) {
+      out += raggruppa(intere);
+      intere = "";
+    }
+    out += p.value;
+  }
+  if (intere) out += raggruppa(intere);
+  return out;
 }
 
 export function euro(n: number | undefined, decimali = false): string {
   if (n === undefined || isNaN(n)) return "—";
-  return conPuntinoAlto(decimali ? FMT_EUR2 : FMT_EUR, n);
+  return conSeparatore(decimali ? FMT_EUR2 : FMT_EUR, n);
 }
 
-/** Numero intero con separatore migliaia (puntino alto). */
+/** Numero intero con separatore migliaia. */
 export function numero(n: number | undefined): string {
   if (n === undefined || isNaN(n)) return "—";
-  return conPuntinoAlto(FMT_NUM, n);
+  return conSeparatore(FMT_NUM, n);
 }
 
 const MESI = [
