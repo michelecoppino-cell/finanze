@@ -293,6 +293,9 @@ th {
   font-weight: 600;
   position: sticky;
   top: 0;
+  /* Sopra la barra di selezione multipla (sticky, z-index 4): altrimenti il
+     menu del filtro colonna resterebbe coperto quando entrambe sono "incollate". */
+  z-index: 6;
 }
 td.num,
 th.num {
@@ -301,6 +304,118 @@ th.num {
 }
 tbody tr:hover {
   background: var(--bg-elev);
+}
+
+/* ---------- Filtro/ordinamento per colonna (stile Excel) ---------- */
+
+.th-riga {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.th-testo {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.th-filtro-btn {
+  flex-shrink: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1;
+  user-select: none;
+}
+.th-filtro-btn:hover,
+.th-filtro-btn.th-filtro-aperto {
+  background: var(--bg-card);
+  color: var(--testo);
+}
+.th-filtro-btn.th-filtro-attivo {
+  color: var(--primario);
+  font-weight: 700;
+}
+/* Il popover e' in un portal su <body> (position:fixed, coordinate calcolate
+   in JS): cosi' non viene tagliato dallo scroll orizzontale della tabella
+   (.tabella-wrap ha overflow-x:auto, che clippa anche in verticale). */
+.filtro-pop {
+  position: fixed;
+  width: max-content;
+  min-width: 190px;
+  max-width: min(280px, 80vw);
+  max-height: min(70vh, 420px);
+  overflow-y: auto;
+  background: var(--bg-card);
+  border: 1px solid var(--bordo);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.22);
+  padding: 10px;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-weight: 400;
+  font-size: 12px;
+  text-transform: none;
+  white-space: normal;
+  cursor: default;
+}
+.filtro-pop input,
+.filtro-pop select {
+  width: 100%;
+}
+.filtro-ordina {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.filtro-ordina button {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+.filtro-campo-pop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.filtro-lista-scroll {
+  max-height: 180px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-top: 1px solid var(--bordo);
+  padding-top: 4px;
+}
+.filtro-lista-voce {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 400;
+  cursor: pointer;
+}
+.filtro-lista-tutto {
+  border-bottom: 1px solid var(--bordo);
+  padding-bottom: 6px;
+}
+.filtro-pop-azioni {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  margin-top: 2px;
+}
+.filtro-pop-azioni button {
+  padding: 4px 8px;
+  font-size: 12px;
 }
 table select,
 table input {
