@@ -39,12 +39,25 @@ function rateEntro(m: Mutuo, annoMese: string): number {
   return Math.max(0, Math.min(m.durataMesi, n));
 }
 
-/** Stato del mutuo a fine del mese indicato (accetta "yyyy-mm" o una data ISO). */
+/**
+ * `quando` precede l'acquisto? Se e' un mese soltanto ("yyyy-mm", il caso
+ * della proiezione futura mese-per-mese) confrontiamo per mese. Se e' una
+ * data completa (yyyy-mm-dd, il caso del saldo storico giorno-per-giorno)
+ * confrontiamo il giorno esatto: altrimenti, per i giorni tra l'inizio del
+ * mese e il giorno reale di acquisto, si conterebbero insieme sia il
+ * contante ancora sul conto sia l'equity dell'immobile (doppio conteggio).
+ */
+function primaDellAcquisto(quando: string, m: Mutuo): boolean {
+  if (quando.length <= 7) return quando < m.dataInizio.slice(0, 7);
+  return quando < m.dataInizio;
+}
+
+/** Stato del mutuo a fine del mese/giorno indicato (accetta "yyyy-mm" o una data ISO). */
 export function statoMutuo(m: Mutuo, quando: string): StatoMutuo {
   const rata = rataMensile(m);
-  // Prima dell'acquisto (mese di dataInizio) l'immobile non e' ancora nel
-  // patrimonio: ne' l'anticipo ne' il capitale rimborsato contano come equity.
-  if (quando.slice(0, 7) < m.dataInizio.slice(0, 7)) {
+  // Prima dell'acquisto l'immobile non e' ancora nel patrimonio: ne'
+  // l'anticipo ne' il capitale rimborsato contano come equity.
+  if (primaDellAcquisto(quando, m)) {
     return {
       rata,
       rateVersate: 0,

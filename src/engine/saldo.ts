@@ -65,7 +65,7 @@ export function calcolaSaldo(
 
   const tassePerAnno = new Map<number, number>();
   for (const t of tasse) {
-    if (t.anno) tassePerAnno.set(t.anno, tasseAnno(t));
+    if (t.anno && !t.escludiDalSaldo) tassePerAnno.set(t.anno, tasseAnno(t));
   }
 
   const ordinate = [...transazioni].sort((a, b) => a.data.localeCompare(b.data));
