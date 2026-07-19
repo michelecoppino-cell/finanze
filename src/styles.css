@@ -591,6 +591,24 @@ tr.riga-annullata > td:nth-child(2) {
   min-width: 90px;
 }
 
+/* Modifica manuale dell'importo (doppio click): l'input evidenzia che il
+   valore e' in corso di modifica e non ancora confermato. */
+.cella-importo-mod {
+  cursor: pointer;
+}
+.input-importo-inline {
+  width: 88px;
+  padding: 3px 6px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  border: 1px dashed #c98a1c;
+  background: rgba(201, 138, 28, 0.12);
+}
+.input-importo-inline:focus {
+  outline: 2px solid #c98a1c;
+  outline-offset: -1px;
+}
+
 /* Barra delle azioni sulla selezione multipla. */
 .barra-selezione {
   display: flex;
