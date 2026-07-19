@@ -10,9 +10,9 @@ import {
   CartesianGrid,
 } from "recharts";
 import { useApp } from "../store/AppStore";
-import { calcolaSaldo, campiona } from "../engine/saldo";
+import { calcolaSaldo, campiona, PuntoSaldo } from "../engine/saldo";
 import { equityImmobili } from "../engine/mutuo";
-import { euro, toIso } from "../util";
+import { euro, toIso, mappaColoriConto } from "../util";
 import { Info } from "../components/Info";
 
 const COLORI = {
@@ -21,10 +21,17 @@ const COLORI = {
   totale: "#54a24b",
 };
 
+const NOME_SALDO_TOTALE = "Saldo totale";
+const NOME_SALDO_GREZZO = "Saldo grezzo";
+const NOME_SALDO_COMPRENSIVO = "Saldo con ETF e immobile";
+
 export function Saldo() {
   const { dati } = useApp();
   const [da, setDa] = useState("");
   const [a, setA] = useState("");
+  const [nascoste, setNascoste] = useState<Set<string>>(new Set());
+  const [mostraGrezzo, setMostraGrezzo] = useState(true);
+  const [mostraComprensivo, setMostraComprensivo] = useState(false);
 
   const ris = useMemo(
     () => calcolaSaldo(dati.transazioni, dati.tasse, dati.parametri),
@@ -67,7 +74,34 @@ export function Saldo() {
     });
   }, [ris.punti, da, a]);
 
-  const datiGrafico = useMemo(() => campiona(puntiRange, 7), [puntiRange]);
+  const datiGraficoBase = useMemo(() => campiona(puntiRange, 7), [puntiRange]);
+
+  // Il comprensivo aggiunge l'equity immobiliare storica ad ogni punto (non
+  // solo quella di oggi), cosi' la curva riflette l'andamento nel tempo.
+  const datiGrafico = useMemo(
+    () =>
+      datiGraficoBase.map((p: PuntoSaldo) => ({
+        ...p,
+        comprensivo: round2(
+          p.nettoTasse +
+            p.investito +
+            (mutui.length > 0 ? equityImmobili(mutui, p.data) : 0),
+        ),
+      })),
+    [datiGraficoBase, mutui],
+  );
+
+  const conti = ris.conti;
+  const coloreConto = useMemo(() => mappaColoriConto(conti), [conti]);
+
+  function alternaLinea(nome: string) {
+    setNascoste((prev) => {
+      const next = new Set(prev);
+      if (next.has(nome)) next.delete(nome);
+      else next.add(nome);
+      return next;
+    });
+  }
 
   if (dati.transazioni.length === 0) {
     return (
@@ -282,17 +316,36 @@ export function Saldo() {
           </label>
         </div>
         <p className="muted" style={{ marginTop: -4 }}>
-          <b>Grezzo</b>: i soldi effettivamente sul conto. <b>Netto tasse</b>:
-          con le tasse (forfettario + Inarcassa) accantonate giorno-per-giorno —
-          i soldi davvero tuoi.
-          {haInvestito && (
+          <b>{NOME_SALDO_TOTALE}</b>: saldo netto tasse su tutti i conti — i
+          soldi davvero tuoi, con le tasse (forfettario + Inarcassa)
+          accantonate giorno-per-giorno.
+          {conti.length > 0 && (
             <>
               {" "}
-              <b>Patrimonio totale</b>: aggiunge il capitale trasferito su altri
-              conti/PAC, che non sparisce ma diventa investito.
+              <b>Saldo per conto</b>: andamento grezzo (senza tasse) del
+              singolo conto.
             </>
-          )}
+          )}{" "}
+          Clicca sulla legenda per accendere/spegnere ciascuna curva.
         </p>
+        <div className="riga-azioni" style={{ marginBottom: 10, gap: 16 }}>
+          <label className="filtro-campo" style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            <input
+              type="checkbox"
+              checked={mostraComprensivo}
+              onChange={(e) => setMostraComprensivo(e.target.checked)}
+            />
+            <span>{NOME_SALDO_COMPRENSIVO}</span>
+          </label>
+          <label className="filtro-campo" style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            <input
+              type="checkbox"
+              checked={mostraGrezzo}
+              onChange={(e) => setMostraGrezzo(e.target.checked)}
+            />
+            <span>{NOME_SALDO_GREZZO}</span>
+          </label>
+        </div>
         <div style={{ width: "100%", height: 360 }}>
           <ResponsiveContainer>
             <LineChart
@@ -320,31 +373,61 @@ export function Saldo() {
                   color: "var(--testo)",
                 }}
               />
-              <Legend />
-              <Line
-                type="monotone"
-                dataKey="grezzo"
-                name="Grezzo"
-                stroke={COLORI.grezzo}
-                dot={false}
-                strokeWidth={1.5}
+              <Legend
+                onClick={(e) => alternaLinea(String(e.value))}
+                formatter={(value: string) => (
+                  <span
+                    style={{
+                      opacity: nascoste.has(value) ? 0.4 : 1,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {value}
+                  </span>
+                )}
               />
               <Line
                 type="monotone"
                 dataKey="nettoTasse"
-                name="Netto tasse"
+                name={NOME_SALDO_TOTALE}
                 stroke={COLORI.nettoTasse}
+                hide={nascoste.has(NOME_SALDO_TOTALE)}
                 dot={false}
                 strokeWidth={2}
               />
-              {haInvestito && (
+              {conti.map((c) => {
+                const nome = `Saldo ${c}`;
+                return (
+                  <Line
+                    key={c}
+                    type="monotone"
+                    dataKey={(p: PuntoSaldo & { comprensivo: number }) => p.perConto[c]}
+                    name={nome}
+                    stroke={coloreConto[c]}
+                    hide={nascoste.has(nome)}
+                    dot={false}
+                    strokeWidth={1.5}
+                  />
+                );
+              })}
+              {mostraComprensivo && (
                 <Line
                   type="monotone"
-                  dataKey="totale"
-                  name="Patrimonio totale"
+                  dataKey="comprensivo"
+                  name={NOME_SALDO_COMPRENSIVO}
                   stroke={COLORI.totale}
                   dot={false}
                   strokeWidth={2}
+                />
+              )}
+              {mostraGrezzo && (
+                <Line
+                  type="monotone"
+                  dataKey="grezzo"
+                  name={NOME_SALDO_GREZZO}
+                  stroke={COLORI.grezzo}
+                  dot={false}
+                  strokeWidth={1.5}
                 />
               )}
             </LineChart>
@@ -362,4 +445,8 @@ export function Saldo() {
       )}
     </>
   );
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
 }
