@@ -42,6 +42,19 @@ function rateEntro(m: Mutuo, annoMese: string): number {
 /** Stato del mutuo a fine del mese indicato (accetta "yyyy-mm" o una data ISO). */
 export function statoMutuo(m: Mutuo, quando: string): StatoMutuo {
   const rata = rataMensile(m);
+  // Prima dell'acquisto (mese di dataInizio) l'immobile non e' ancora nel
+  // patrimonio: ne' l'anticipo ne' il capitale rimborsato contano come equity.
+  if (quando.slice(0, 7) < m.dataInizio.slice(0, 7)) {
+    return {
+      rata,
+      rateVersate: 0,
+      capitaleRimborsato: 0,
+      interessiPagati: 0,
+      debitoResiduo: m.importo,
+      equity: 0,
+      estinto: false,
+    };
+  }
   const n = rateEntro(m, quando.slice(0, 7));
   const i = (m.tasso ?? 0) / 12;
   let debito = m.importo;
