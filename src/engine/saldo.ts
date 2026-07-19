@@ -20,11 +20,15 @@ export interface PuntoSaldo {
   investito: number;
   /** Patrimonio totale: netto tasse + capitale investito (i trasferimenti non "spariscono"). */
   totale: number;
+  /** Saldo grezzo cumulato per singolo conto (entrate-uscite di quel conto, senza tasse). */
+  perConto: Record<string, number>;
 }
 
 export interface SaldoRisultato {
   punti: PuntoSaldo[];
   ultimo?: PuntoSaldo;
+  /** Nomi dei conti distinti trovati nei movimenti, in ordine alfabetico. */
+  conti: string[];
 }
 
 function pad(n: number): string {
@@ -57,7 +61,7 @@ export function calcolaSaldo(
 ): SaldoRisultato {
   // Le voci annullate non esistono per il calcolo.
   transazioni = transazioni.filter((t) => !t.annullata);
-  if (transazioni.length === 0) return { punti: [] };
+  if (transazioni.length === 0) return { punti: [], conti: [] };
 
   const tassePerAnno = new Map<number, number>();
   for (const t of tasse) {
@@ -71,6 +75,8 @@ export function calcolaSaldo(
   const trasferGiorno = new Map<string, number>(); // uscite flag trasferimento per giorno
   const fatturaGiorno = new Map<string, number>(); // entrate flag fattura per giorno
   const fatturaMese = new Map<string, number>(); // entrate flag fattura per mese yyyy-mm
+  const nettoContoGiorno = new Map<string, Map<string, number>>(); // conto -> (giorno -> entrate-uscite)
+  const conti = new Set<string>();
 
   for (const t of ordinate) {
     const d = t.data;
@@ -84,7 +90,17 @@ export function calcolaSaldo(
       const m = d.slice(0, 7);
       fatturaMese.set(m, (fatturaMese.get(m) ?? 0) + t.entrate);
     }
+    if (t.conto) {
+      conti.add(t.conto);
+      let m = nettoContoGiorno.get(t.conto);
+      if (!m) {
+        m = new Map<string, number>();
+        nettoContoGiorno.set(t.conto, m);
+      }
+      m.set(d, (m.get(d) ?? 0) + (t.entrate ?? 0) - (t.uscite ?? 0));
+    }
   }
+  const contiOrdinati = [...conti].sort();
 
   const startIso =
     par.saldoInizialeData && par.saldoInizialeData < ordinate[0].data
@@ -101,6 +117,7 @@ export function calcolaSaldo(
   let cumFatturaBlocco = 0;
   let fatturaMesiCompletati = 0;
   let meseCorrente = "";
+  const cumPerConto = new Map<string, number>(contiOrdinati.map((c) => [c, 0]));
 
   const punti: PuntoSaldo[] = [];
 
@@ -140,6 +157,13 @@ export function calcolaSaldo(
     // conto): riaggiungendoli come "investito" il patrimonio totale non cala.
     const totale = nettoTasse + cumTrasferito;
 
+    const perConto: Record<string, number> = {};
+    for (const c of contiOrdinati) {
+      const cum = (cumPerConto.get(c) ?? 0) + (nettoContoGiorno.get(c)?.get(iso) ?? 0);
+      cumPerConto.set(c, cum);
+      perConto[c] = round(cum);
+    }
+
     punti.push({
       data: iso,
       grezzo: round(grezzo),
@@ -147,10 +171,11 @@ export function calcolaSaldo(
       potereAcquisto: round(potereAcquisto),
       investito: round(cumTrasferito),
       totale: round(totale),
+      perConto,
     });
   }
 
-  return { punti, ultimo: punti[punti.length - 1] };
+  return { punti, ultimo: punti[punti.length - 1], conti: contiOrdinati };
 }
 
 function round(n: number): number {
