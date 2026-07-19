@@ -45,6 +45,23 @@ export interface Transazione {
   mutuo?: boolean;
   /** Conto/banca di provenienza (assegnato all'import del CSV). */
   conto?: string;
+  /**
+   * Solo per movimenti con flag "tasse": come l'importo pagato si ripartisce
+   * tra Inarcassa e Imposta (IRPEF/imposta sostitutiva) e a quale anno di
+   * competenza va imputato. Di solito una riga sola, ma un versamento puo'
+   * coprire il saldo dell'anno precedente + l'acconto di quello in corso:
+   * in quel caso si divide su piu' righe (una per anno). Serve a calcolare
+   * il "pagato" reale da confrontare con gli importi dichiarati nel foglio
+   * tasse per anno.
+   */
+  allocazioneTasse?: AllocazioneTasse[];
+}
+
+/** Quota di un pagamento tasse imputata a un anno (foglio "Transazioni", verifica pagamenti). */
+export interface AllocazioneTasse {
+  anno: number;
+  inarcassa?: number;
+  imposta?: number;
 }
 
 /** Categoria di spesa/entrata (foglio "Dati"). */
