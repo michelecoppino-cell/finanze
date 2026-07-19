@@ -404,6 +404,61 @@ tr.riga-trasf > td:first-child {
   border-left: 3px solid var(--primario);
 }
 
+/* Giroconto interno tra conti propri: bordo neutro tratteggiato. */
+tr.riga-interna > td:first-child {
+  border-left: 3px dashed var(--muted);
+}
+/* Rata di mutuo: bordo viola (equity immobiliare). */
+tr.riga-mutuo > td:first-child {
+  border-left: 3px solid #b279a2;
+}
+
+/* Badge del conto/banca di provenienza. */
+.chip-conto {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chip-conto .pallino {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* Richiesta banca in fase di import CSV (campo obbligatorio, evidenziato). */
+.import-banca {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  padding: 12px;
+  margin-bottom: 14px;
+  border: 1px solid var(--primario);
+  border-radius: 8px;
+  background: var(--bg-elev);
+}
+.import-banca .muted {
+  flex: 1 1 220px;
+  padding-bottom: 6px;
+}
+
+/* Blocco di un mutuo in Impostazioni. */
+.mutuo-blocco {
+  border-top: 1px solid var(--bordo);
+  padding-top: 12px;
+  margin-top: 12px;
+}
+.mutuo-blocco:first-of-type {
+  border-top: none;
+  padding-top: 0;
+  margin-top: 0;
+}
+
 /* Movimento annullato: resta in elenco (traccia) ma grigio e barrato,
    ed e' escluso da tutti i calcoli. */
 tr.riga-annullata > td {

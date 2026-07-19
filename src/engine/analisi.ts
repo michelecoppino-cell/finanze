@@ -1,8 +1,9 @@
 // Motore di analisi spese/entrate. Replica la logica del foglio "AnalisiSpese":
 // somma le uscite per categoria e per mese (equivalente ai SUMIFS dell'Excel).
 
-import { Transazione } from "../types";
+import { Mutuo, Transazione } from "../types";
 import { annoMese } from "../util";
+import { interessiDelMese } from "./mutuo";
 
 export interface RigaMese {
   mese: string; // yyyy-mm
@@ -11,6 +12,8 @@ export interface RigaMese {
   totaleEntrate: number;
   tasse: number; // uscite con flag tasse
   trasferimenti: number; // uscite con flag trasferimento (giroconti/investimenti)
+  /** Quota capitale delle rate di mutuo (investimento, non spesa). */
+  mutuoCapitale: number;
 }
 
 export interface AnalisiRisultato {
@@ -21,9 +24,13 @@ export interface AnalisiRisultato {
   totaleEntrate: number;
   totaleTasse: number;
   totaleTrasferimenti: number;
+  /** Quota capitale complessiva delle rate di mutuo nel periodo. */
+  totaleMutuoCapitale: number;
 }
 
 const SENZA_CATEGORIA = "(non categorizzato)";
+/** Categoria sintetica in cui finisce la quota interessi delle rate di mutuo. */
+export const CAT_MUTUO_INTERESSI = "Mutuo (interessi)";
 
 /** Ordina gli yyyy-mm crescenti e riempie i buchi tra il primo e l'ultimo. */
 function tuttiIMesi(daISO: string, aISO: string): string[] {
@@ -46,6 +53,7 @@ function tuttiIMesi(daISO: string, aISO: string): string[] {
 export function analizza(
   transazioni: Transazione[],
   categorieNote: string[],
+  mutui: Mutuo[] = [],
 ): AnalisiRisultato {
   // Le voci annullate non esistono per il calcolo.
   transazioni = transazioni.filter((t) => !t.annullata);
@@ -58,6 +66,7 @@ export function analizza(
       totaleEntrate: 0,
       totaleTasse: 0,
       totaleTrasferimenti: 0,
+      totaleMutuoCapitale: 0,
     };
   }
 
@@ -67,7 +76,24 @@ export function analizza(
   let totaleEntrate = 0;
   let totaleTasse = 0;
   let totaleTrasferimenti = 0;
+  let totaleMutuoCapitale = 0;
   const categorieUsate = new Set<string>(categorieNote);
+
+  // Budget interessi residuo per mese: ogni rata flaggata "mutuo" assorbe la
+  // quota interessi del suo mese (dal piano di ammortamento); il resto della
+  // rata e' quota capitale (investimento, non spesa).
+  const interessiRestanti = new Map<string, number>();
+  function quotaInteressi(mese: string, uscita: number): number {
+    if (mutui.length === 0) return 0;
+    let resto = interessiRestanti.get(mese);
+    if (resto === undefined) {
+      resto = 0;
+      for (const m of mutui) resto += interessiDelMese(m, mese);
+    }
+    const quota = Math.min(uscita, resto);
+    interessiRestanti.set(mese, resto - quota);
+    return quota;
+  }
 
   let minMese: string | undefined;
   let maxMese: string | undefined;
@@ -86,9 +112,14 @@ export function analizza(
         totaleEntrate: 0,
         tasse: 0,
         trasferimenti: 0,
+        mutuoCapitale: 0,
       };
       perMese.set(mese, riga);
     }
+
+    // Giroconti interni tra conti propri: le due gambe si annullano, non sono
+    // ne' spese ne' entrate. Fuori dall'analisi del tutto.
+    if (t.girocontoInterno) continue;
 
     // I trasferimenti (giroconti/PAC) non sono spese: non entrano nelle
     // categorie ne' nel totale uscite, ma vengono tracciati a parte.
@@ -96,6 +127,27 @@ export function analizza(
       if (t.uscite) {
         riga.trasferimenti += t.uscite;
         totaleTrasferimenti += t.uscite;
+      }
+      continue;
+    }
+
+    // Rate di mutuo: solo la quota interessi e' una spesa (categoria
+    // sintetica); la quota capitale e' investimento e va tracciata a parte.
+    if (t.mutuo) {
+      if (t.uscite) {
+        const qi = quotaInteressi(mese, t.uscite);
+        const qc = t.uscite - qi;
+        if (qi > 0) {
+          categorieUsate.add(CAT_MUTUO_INTERESSI);
+          riga.perCategoria[CAT_MUTUO_INTERESSI] =
+            (riga.perCategoria[CAT_MUTUO_INTERESSI] ?? 0) + qi;
+          riga.totaleUscite += qi;
+          totalePerCategoria[CAT_MUTUO_INTERESSI] =
+            (totalePerCategoria[CAT_MUTUO_INTERESSI] ?? 0) + qi;
+          totaleUscite += qi;
+        }
+        riga.mutuoCapitale += qc;
+        totaleMutuoCapitale += qc;
       }
       continue;
     }
@@ -128,6 +180,7 @@ export function analizza(
         totaleEntrate: 0,
         tasse: 0,
         trasferimenti: 0,
+        mutuoCapitale: 0,
       },
   );
 
@@ -149,6 +202,7 @@ export function analizza(
     totaleEntrate,
     totaleTasse,
     totaleTrasferimenti,
+    totaleMutuoCapitale,
   };
 }
 
@@ -166,6 +220,7 @@ export function perAnno(mesi: RigaMese[]): RigaMese[] {
         totaleEntrate: 0,
         tasse: 0,
         trasferimenti: 0,
+        mutuoCapitale: 0,
       };
       map.set(anno, a);
     }
@@ -176,6 +231,7 @@ export function perAnno(mesi: RigaMese[]): RigaMese[] {
     a.totaleEntrate += r.totaleEntrate;
     a.tasse += r.tasse;
     a.trasferimenti += r.trasferimenti;
+    a.mutuoCapitale += r.mutuoCapitale;
   }
   return [...map.values()].sort((x, y) => x.mese.localeCompare(y.mese));
 }

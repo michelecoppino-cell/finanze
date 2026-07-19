@@ -142,15 +142,23 @@ export type MappaturaCsv = {
 /** Prova a indovinare la mappatura colonne dagli header. */
 export function indovinaMappatura(header: string[]): MappaturaCsv {
   const norm = header.map((h) => h.toLowerCase().trim());
-  const trova = (...chiavi: string[]) =>
-    norm.findIndex((h) => chiavi.some((k) => h.includes(k)));
+  const usate = new Set<number>();
+  // Ogni colonna viene assegnata a un solo campo: senza esclusione,
+  // "operazione" matcherebbe anche "data operazione" già usata per la data.
+  const trova = (...chiavi: string[]) => {
+    const i = norm.findIndex(
+      (h, idx) => !usate.has(idx) && chiavi.some((k) => h.includes(k)),
+    );
+    if (i >= 0) usate.add(i);
+    return i;
+  };
 
   const data = trova("data operazione", "data valuta", "data contabile", "data");
   const entrate = trova("entrate", "accrediti", "avere", "entrata");
   const uscite = trova("uscite", "addebiti", "dare", "uscita");
   const importo = trova("importo", "amount");
-  const tipologia = trova("tipologia", "tipo", "operazione");
   const causale = trova("causale", "descrizione", "dettagli", "description");
+  const tipologia = trova("tipologia", "tipo", "operazione");
   const stato = trova("stato", "status");
 
   return {
