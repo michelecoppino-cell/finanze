@@ -228,6 +228,7 @@ export function Movimenti() {
   const [selCategorie, setSelCategorie] = useState<Set<string> | null>(null);
   const [selTipi, setSelTipi] = useState<Set<string> | null>(null);
   const [selConti, setSelConti] = useState<Set<string> | null>(null);
+  const [selTasse, setSelTasse] = useState<Set<string> | null>(null);
 
   const [mostraAI, setMostraAI] = useState(false);
   const [mostraNuovo, setMostraNuovo] = useState(false);
@@ -273,6 +274,10 @@ export function Movimenti() {
     { valore: "interno", etichetta: "Interno" },
     { valore: "mutuo", etichetta: "Mutuo" },
   ];
+  const valoriTasseLista: VoceLista[] = [
+    { valore: "si", etichetta: "Sì" },
+    { valore: "no", etichetta: "No" },
+  ];
   const valoriContoLista: VoceLista[] = useMemo(
     () => [
       { valore: "__vuoto__", etichetta: "(nessuno)" },
@@ -301,6 +306,7 @@ export function Movimenti() {
         if (selCategorie && !selCategorie.has(t.categoria || "__vuota__"))
           return false;
         if (selTipi && !selTipi.has(tipoSpecialeDi(t))) return false;
+        if (selTasse && !selTasse.has(t.tasse ? "si" : "no")) return false;
         if (eMin !== undefined && (t.entrate ?? 0) < eMin) return false;
         if (eMax !== undefined && (t.entrate ?? 0) > eMax) return false;
         if (uMin !== undefined && (t.uscite ?? 0) < uMin) return false;
@@ -367,6 +373,7 @@ export function Movimenti() {
     selCategorie,
     selTipi,
     selConti,
+    selTasse,
     ordine,
   ]);
 
@@ -412,7 +419,7 @@ export function Movimenti() {
       usciteMin,
       usciteMax,
     ].filter(Boolean).length +
-    [selCategorie, selTipi, selConti].filter((s) => s !== null).length;
+    [selCategorie, selTipi, selConti, selTasse].filter((s) => s !== null).length;
   const filtriAttivi = numFiltriAttivi > 0;
 
   function azzeraFiltri() {
@@ -433,6 +440,7 @@ export function Movimenti() {
     setSelCategorie(null);
     setSelTipi(null);
     setSelConti(null);
+    setSelTasse(null);
   }
 
   // ---------- Import CSV ----------
@@ -818,9 +826,12 @@ export function Movimenti() {
             setSelTipi,
             selConti,
             setSelConti,
+            selTasse,
+            setSelTasse,
             valoriCategoriaLista,
             valoriTipoLista,
             valoriContoLista,
+            valoriTasseLista,
           }}
         />
       )}
@@ -1175,9 +1186,12 @@ type FiltriColonna = {
   setSelTipi: (s: Set<string> | null) => void;
   selConti: Set<string> | null;
   setSelConti: (s: Set<string> | null) => void;
+  selTasse: Set<string> | null;
+  setSelTasse: (s: Set<string> | null) => void;
   valoriCategoriaLista: VoceLista[];
   valoriTipoLista: VoceLista[];
   valoriContoLista: VoceLista[];
+  valoriTasseLista: VoceLista[];
 };
 
 function TabellaMovimenti({
@@ -1542,7 +1556,21 @@ function TabellaMovimenti({
                 )}
               </ThFiltro>
               <th>Fatt.</th>
-              <th>Tasse</th>
+              <ThFiltro
+                titolo="Tasse"
+                fc={fc}
+                attivo={fc.selTasse !== null}
+                titoloIntestazione="Movimento marcato come pagamento tasse/contributi"
+              >
+                {(chiudi) => (
+                  <FiltroListaCorpo
+                    valori={fc.valoriTasseLista}
+                    selezionati={fc.selTasse}
+                    onCambia={fc.setSelTasse}
+                    onChiudi={chiudi}
+                  />
+                )}
+              </ThFiltro>
               <ThFiltro
                 titolo="Note"
                 campo="note"
