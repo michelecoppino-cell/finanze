@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useApp } from "../store/AppStore";
 import { Transazione } from "../types";
-import { euro } from "../util";
+import { euro, numero, parseNumeroIt } from "../util";
 import {
   parseCsv,
   indovinaMappatura,
@@ -32,13 +32,21 @@ export function Movimenti() {
 
   const [mostraAI, setMostraAI] = useState(false);
   const [esitoImport, setEsitoImport] = useState("");
+  // Su schermi piccoli i filtri partono chiusi (occupano molto spazio); su
+  // desktop restano sempre visibili.
+  const [filtriAperti, setFiltriAperti] = useState<boolean>(
+    () =>
+      typeof window === "undefined" ||
+      window.matchMedia("(min-width: 761px)").matches,
+  );
 
   const categorie = dati.categorie.map((c) => c.nome);
 
   const filtrate = useMemo(() => {
     const txt = filtroTesto.toLowerCase().trim();
-    const min = importoMin === "" ? undefined : Number(importoMin);
-    const max = importoMax === "" ? undefined : Number(importoMax);
+    // parseNumeroIt accetta anche importi scritti all'italiana ("1.234,56").
+    const min = parseNumeroIt(importoMin);
+    const max = parseNumeroIt(importoMax);
     return dati.transazioni
       .filter((t) => {
         if (dataDa && t.data < dataDa) return false;
@@ -63,7 +71,12 @@ export function Movimenti() {
           if (min !== undefined && imp < min) return false;
           if (max !== undefined && imp > max) return false;
         }
-        if (txt && !(t.causale ?? "").toLowerCase().includes(txt)) return false;
+        if (txt) {
+          const cerca = `${t.causale ?? ""} ${t.tipologia ?? ""} ${
+            t.categoria ?? ""
+          }`.toLowerCase();
+          if (!cerca.includes(txt)) return false;
+        }
         return true;
       })
       .sort((a, b) => b.data.localeCompare(a.data));
@@ -78,18 +91,31 @@ export function Movimenti() {
     filtroCat,
   ]);
 
+  // Totali del risultato filtrato: utili per rispondere a "quanto ho speso in X?".
+  const totaliFiltrati = useMemo(() => {
+    let entrate = 0;
+    let uscite = 0;
+    for (const t of filtrate) {
+      if (t.entrate) entrate += t.entrate;
+      if (t.uscite && !t.trasferimento) uscite += t.uscite;
+    }
+    return { entrate, uscite };
+  }, [filtrate]);
+
   const nonCategorizzate = dati.transazioni.filter(
     (t) => t.uscite && !t.categoria && !t.trasferimento,
   ).length;
 
-  const filtriAttivi =
-    filtroTesto ||
-    dataDa ||
-    dataA ||
-    importoMin ||
-    importoMax ||
-    filtroTipo ||
-    filtroCat;
+  const numFiltriAttivi = [
+    filtroTesto,
+    dataDa,
+    dataA,
+    importoMin,
+    importoMax,
+    filtroTipo,
+    filtroCat,
+  ].filter(Boolean).length;
+  const filtriAttivi = numFiltriAttivi > 0;
 
   function azzeraFiltri() {
     setFiltroTesto("");
@@ -185,8 +211,8 @@ export function Movimenti() {
           )}
         </button>
         <span className="muted">
-          {dati.transazioni.length} movimenti · {nonCategorizzate} da
-          categorizzare
+          {numero(dati.transazioni.length)} movimenti ·{" "}
+          {numero(nonCategorizzate)} da categorizzare
         </span>
         {esitoImport && <span className="chip">{esitoImport}</span>}
       </div>
@@ -203,68 +229,82 @@ export function Movimenti() {
 
       {mostraAI && <PannelloAI onChiudi={() => setMostraAI(false)} />}
 
-      <div className="filtri">
-        <input
-          placeholder="Cerca nella causale…"
-          value={filtroTesto}
-          onChange={(e) => setFiltroTesto(e.target.value)}
-          style={{ minWidth: 190, flex: "1 1 190px" }}
-        />
-        <label className="filtro-campo">
-          <span>Da</span>
+      <button
+        className="secondario filtri-toggle"
+        onClick={() => setFiltriAperti((v) => !v)}
+        aria-expanded={filtriAperti}
+      >
+        {filtriAperti ? "▾" : "▸"} Filtri
+        {filtriAttivi && <span className="chip">{numFiltriAttivi}</span>}
+      </button>
+
+      {filtriAperti && (
+        <div className="filtri">
           <input
-            type="date"
-            value={dataDa}
-            onChange={(e) => setDataDa(e.target.value)}
+            placeholder="Cerca in causale, tipologia, categoria…"
+            value={filtroTesto}
+            onChange={(e) => setFiltroTesto(e.target.value)}
+            style={{ minWidth: 190, flex: "2 1 190px" }}
           />
-        </label>
-        <label className="filtro-campo">
-          <span>A</span>
+          <label className="filtro-campo">
+            <span>Da</span>
+            <input
+              type="date"
+              value={dataDa}
+              onChange={(e) => setDataDa(e.target.value)}
+            />
+          </label>
+          <label className="filtro-campo">
+            <span>A</span>
+            <input
+              type="date"
+              value={dataA}
+              onChange={(e) => setDataA(e.target.value)}
+            />
+          </label>
           <input
-            type="date"
-            value={dataA}
-            onChange={(e) => setDataA(e.target.value)}
+            inputMode="decimal"
+            placeholder="€ min"
+            value={importoMin}
+            onChange={(e) => setImportoMin(e.target.value)}
+            style={{ width: 92 }}
           />
-        </label>
-        <input
-          type="number"
-          placeholder="€ min"
-          value={importoMin}
-          onChange={(e) => setImportoMin(e.target.value)}
-          style={{ width: 92 }}
-        />
-        <input
-          type="number"
-          placeholder="€ max"
-          value={importoMax}
-          onChange={(e) => setImportoMax(e.target.value)}
-          style={{ width: 92 }}
-        />
-        <select
-          value={filtroTipo}
-          onChange={(e) => setFiltroTipo(e.target.value as Tipo)}
-        >
-          <option value="">Tutti i tipi</option>
-          <option value="entrate">Entrate</option>
-          <option value="uscite">Uscite</option>
-          <option value="trasferimenti">Trasferimenti</option>
-        </select>
-        <select value={filtroCat} onChange={(e) => setFiltroCat(e.target.value)}>
-          <option value="">Tutte le categorie</option>
-          <option value="__vuote__">Da categorizzare</option>
-          <option value="__trasf__">Trasferimenti (giroconti)</option>
-          {categorie.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-        </select>
-        {filtriAttivi && (
-          <button className="secondario" onClick={azzeraFiltri}>
-            Azzera filtri
-          </button>
-        )}
-      </div>
+          <input
+            inputMode="decimal"
+            placeholder="€ max"
+            value={importoMax}
+            onChange={(e) => setImportoMax(e.target.value)}
+            style={{ width: 92 }}
+          />
+          <select
+            value={filtroTipo}
+            onChange={(e) => setFiltroTipo(e.target.value as Tipo)}
+          >
+            <option value="">Tutti i tipi</option>
+            <option value="entrate">Entrate</option>
+            <option value="uscite">Uscite</option>
+            <option value="trasferimenti">Trasferimenti</option>
+          </select>
+          <select
+            value={filtroCat}
+            onChange={(e) => setFiltroCat(e.target.value)}
+          >
+            <option value="">Tutte le categorie</option>
+            <option value="__vuote__">Da categorizzare</option>
+            <option value="__trasf__">Trasferimenti (giroconti)</option>
+            {categorie.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+          {filtriAttivi && (
+            <button className="secondario" onClick={azzeraFiltri}>
+              Azzera filtri
+            </button>
+          )}
+        </div>
+      )}
 
       {dati.transazioni.length === 0 ? (
         <div className="card vuoto">
@@ -275,6 +315,7 @@ export function Movimenti() {
         <TabellaMovimenti
           righe={filtrate}
           totale={dati.transazioni.length}
+          totaliFiltrati={filtriAttivi ? totaliFiltrati : undefined}
           categorie={categorie}
           onModifica={modifica}
           onElimina={elimina}
@@ -289,12 +330,14 @@ export function Movimenti() {
 function TabellaMovimenti({
   righe,
   totale,
+  totaliFiltrati,
   categorie,
   onModifica,
   onElimina,
 }: {
   righe: Transazione[];
   totale: number;
+  totaliFiltrati?: { entrate: number; uscite: number };
   categorie: string[];
   onModifica: (id: string, patch: Partial<Transazione>) => void;
   onElimina: (id: string) => void;
@@ -305,8 +348,17 @@ function TabellaMovimenti({
     <>
       <p className="muted" style={{ margin: "0 0 8px" }}>
         {righe.length === totale
-          ? `${totale} movimenti`
-          : `${righe.length} di ${totale} movimenti (filtrati)`}
+          ? `${numero(totale)} movimenti`
+          : `${numero(righe.length)} di ${numero(totale)} movimenti (filtrati)`}
+        {totaliFiltrati && (
+          <>
+            {" · "}
+            <span className="entrata">
+              +{euro(totaliFiltrati.entrate, true)}
+            </span>{" "}
+            <span className="uscita">−{euro(totaliFiltrati.uscite, true)}</span>
+          </>
+        )}
       </p>
       <div className="tabella-wrap">
         <table>
@@ -353,7 +405,7 @@ function TabellaMovimenti({
                       })
                     }
                   >
-                    <option value="">{t.trasferimento ? "—" : "—"}</option>
+                    <option value="">—</option>
                     {categorie.map((c) => (
                       <option key={c} value={c}>
                         {c}
@@ -410,7 +462,8 @@ function TabellaMovimenti({
       </div>
       {righe.length > LIMITE && (
         <p className="muted" style={{ marginTop: 8 }}>
-          Mostrate {LIMITE} di {righe.length}. Usa i filtri per restringere.
+          Mostrate {numero(LIMITE)} di {numero(righe.length)}. Usa i filtri per
+          restringere.
         </p>
       )}
     </>

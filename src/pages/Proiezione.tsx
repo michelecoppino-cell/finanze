@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import {
   AreaChart,
   Area,
@@ -18,6 +18,37 @@ import { euro, uid } from "../util";
 const COL_LIQ = "#4c78a8"; // liquido
 const COL_CAP = "#8a94a6"; // capitale investito
 const COL_GAIN = "#54a24b"; // guadagni
+
+/**
+ * Card richiudibile con tendina: usata per gli editor di scenari e
+ * investimenti, che di default restano chiusi per non ingombrare la vista.
+ */
+function Pannello({
+  titolo,
+  sottotitolo,
+  apertoDefault = false,
+  children,
+}: {
+  titolo: string;
+  sottotitolo?: string;
+  apertoDefault?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <details className="card pannello" open={apertoDefault}>
+      <summary>
+        <span className="pannello-freccia" aria-hidden="true">
+          ▸
+        </span>
+        <span>
+          {titolo}
+          {sottotitolo && <span className="muted pannello-sotto"> {sottotitolo}</span>}
+        </span>
+      </summary>
+      <div className="pannello-corpo">{children}</div>
+    </details>
+  );
+}
 
 export function Proiezione() {
   const { dati, aggiorna } = useApp();
@@ -63,8 +94,12 @@ export function Proiezione() {
             dell'Excel, importalo da <b>Impostazioni</b>.
           </p>
         </div>
-        <EditorEventi />
-        <EditorInvestimenti />
+        <Pannello titolo="Scenari entrate/uscite" apertoDefault>
+          <EditorEventi />
+        </Pannello>
+        <Pannello titolo="Investimenti" apertoDefault>
+          <EditorInvestimenti />
+        </Pannello>
       </>
     );
   }
@@ -253,21 +288,21 @@ export function Proiezione() {
         </div>
 
         <div className="colonna-editor">
-          <div className="card" style={{ marginBottom: 0 }}>
-            <h3 style={{ marginBottom: 6 }}>
-              Scenari entrate/uscite ({dati.eventiFuturi.length})
-            </h3>
+          <Pannello
+            titolo={`Scenari entrate/uscite (${dati.eventiFuturi.length})`}
+            sottotitolo="· apri per modificare"
+          >
             <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>
-              Modifica i valori: il grafico a sinistra si aggiorna in tempo reale.
+              Modifica i valori: il grafico si aggiorna in tempo reale.
             </p>
             <EditorEventi />
-          </div>
-          <div className="card" style={{ marginBottom: 0 }}>
-            <h3 style={{ marginBottom: 6 }}>
-              Investimenti ({dati.investimenti.length})
-            </h3>
+          </Pannello>
+          <Pannello
+            titolo={`Investimenti (${dati.investimenti.length})`}
+            sottotitolo="· apri per modificare"
+          >
             <EditorInvestimenti />
-          </div>
+          </Pannello>
         </div>
       </div>
     </>
