@@ -1,11 +1,54 @@
+import { useMemo } from "react";
 import { useApp } from "../store/AppStore";
 import { AnnoTasse } from "../types";
-import { euro } from "../util";
+import { analizza } from "../engine/analisi";
+import { euro, MESI } from "../util";
 import { Info } from "../components/Info";
+
+/** Totale tasse dichiarato per l'anno: importi reali se presenti, altrimenti stima da fatturato x aliquota. */
+function stimaAnno(t: AnnoTasse): number {
+  const totale = (t.inarcassa ?? 0) + (t.irpef ?? 0) + (t.aggiuntivi ?? 0);
+  if (totale > 0) return totale;
+  if (t.fatturato && t.tassazione) return t.fatturato * t.tassazione;
+  return 0;
+}
 
 export function Tasse() {
   const { dati, aggiorna } = useApp();
   const righe = [...dati.tasse].sort((a, b) => a.anno - b.anno);
+
+  // Confronto mensile: quanto è stato REALMENTE pagato (movimenti con flag
+  // "tasse") mese per mese, per anno, contro il totale DICHIARATO nella
+  // tabella sopra. Non torna mai esattamente: in Italia si paga a rate
+  // (acconti/saldo/conguagli) che scavalcano l'anno fiscale di competenza,
+  // quindi il confronto è solo un termometro per accorgersi di anomalie
+  // grosse (spunte dimenticate, anni senza alcun pagamento tracciato).
+  const analisi = useMemo(
+    () => analizza(dati.transazioni, dati.categorie.map((c) => c.nome), dati.mutui ?? []),
+    [dati.transazioni, dati.categorie, dati.mutui],
+  );
+
+  const confrontoAnni = useMemo(() => {
+    const perAnno = new Map<number, number[]>();
+    for (const r of analisi.mesi) {
+      const anno = Number(r.mese.slice(0, 4));
+      const mese = Number(r.mese.slice(5, 7)) - 1;
+      if (!perAnno.has(anno)) perAnno.set(anno, Array(12).fill(0));
+      perAnno.get(anno)![mese] = r.tasse;
+    }
+    // Include anche gli anni presenti solo nella tabella "Dati fiscali" (es.
+    // un anno dichiarato ma senza alcun movimento importato).
+    for (const t of righe) if (!perAnno.has(t.anno)) perAnno.set(t.anno, Array(12).fill(0));
+
+    const dichiaratoPerAnno = new Map(righe.map((t) => [t.anno, stimaAnno(t)]));
+
+    return [...perAnno.keys()].sort((a, b) => a - b).map((anno) => {
+      const mesi = perAnno.get(anno)!;
+      const pagato = mesi.reduce((s, v) => s + v, 0);
+      const dichiarato = dichiaratoPerAnno.get(anno) ?? 0;
+      return { anno, mesi, pagato, dichiarato, differenza: pagato - dichiarato };
+    });
+  }, [analisi.mesi, righe]);
 
   function modifica(anno: number, patch: Partial<AnnoTasse>) {
     aggiorna((d) => ({
@@ -28,12 +71,7 @@ export function Tasse() {
 
   // Accantonamento consigliato: dall'anno piu' recente con dati.
   const ultimo = righe
-    .map((t) => {
-      const tot =
-        (t.inarcassa ?? 0) + (t.irpef ?? 0) + (t.aggiuntivi ?? 0) ||
-        (t.fatturato && t.tassazione ? t.fatturato * t.tassazione : 0);
-      return { anno: t.anno, tot, fatturato: t.fatturato };
-    })
+    .map((t) => ({ anno: t.anno, tot: stimaAnno(t), fatturato: t.fatturato }))
     .filter((x) => x.tot > 0)
     .pop();
   const aliquotaEff =
@@ -145,14 +183,7 @@ export function Tasse() {
           </thead>
           <tbody>
             {righe.map((t) => {
-              const totale =
-                (t.inarcassa ?? 0) + (t.irpef ?? 0) + (t.aggiuntivi ?? 0);
-              const stima =
-                totale > 0
-                  ? totale
-                  : t.fatturato && t.tassazione
-                    ? t.fatturato * t.tassazione
-                    : 0;
+              const stima = stimaAnno(t);
               return (
                 <tr key={t.anno}>
                   <td>
@@ -224,6 +255,66 @@ export function Tasse() {
           + Aggiungi anno
         </button>
       </div>
+
+      {confrontoAnni.length > 0 && (
+        <div className="card" style={{ marginTop: 24 }}>
+          <h3>
+            Pagato vs dichiarato, mese per mese
+            <Info>
+              Colonne Gen–Dic: somma dei movimenti con flag <b>Tasse</b> di
+              quel mese (dalla pagina Movimenti). "Dichiarato" è il totale
+              della riga corrispondente nella tabella sopra.
+              <br />
+              <br />
+              Non aspettarti che tornino esatti anno per anno: in Italia si
+              paga a rate (acconti a giugno/novembre, saldo dell'anno
+              precedente, conguagli Inarcassa) che scavalcano l'anno fiscale
+              di competenza. Usalo per accorgerti di anomalie grosse — un
+              anno senza nessun pagamento tracciato, o un importo dichiarato
+              molto più alto del pagato su più anni di fila — non come un
+              controllo esatto.
+            </Info>
+          </h3>
+          <div className="tabella-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Anno</th>
+                  {MESI.map((m) => (
+                    <th key={m} className="num">
+                      {m}
+                    </th>
+                  ))}
+                  <th className="num">Pagato</th>
+                  <th className="num">Dichiarato</th>
+                  <th className="num">Differenza</th>
+                </tr>
+              </thead>
+              <tbody>
+                {confrontoAnni.map((r) => (
+                  <tr key={r.anno}>
+                    <td>
+                      <b>{r.anno}</b>
+                    </td>
+                    {r.mesi.map((v, i) => (
+                      <td key={i} className="num">
+                        {v ? euro(v) : ""}
+                      </td>
+                    ))}
+                    <td className="num">
+                      <b>{euro(r.pagato, true)}</b>
+                    </td>
+                    <td className="num">{euro(r.dichiarato, true)}</td>
+                    <td className="num">
+                      {r.dichiarato > 0 ? euro(r.differenza, true) : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </>
   );
 }

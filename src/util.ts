@@ -112,7 +112,7 @@ export function numero(n: number | undefined): string {
   return conSeparatore(FMT_NUM, n);
 }
 
-const MESI = [
+export const MESI = [
   "Gen", "Feb", "Mar", "Apr", "Mag", "Giu",
   "Lug", "Ago", "Set", "Ott", "Nov", "Dic",
 ];
