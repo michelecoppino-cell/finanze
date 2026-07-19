@@ -19,6 +19,7 @@ import { Info } from "../components/Info";
 const COL_LIQ = "#4c78a8"; // liquido
 const COL_CAP = "#8a94a6"; // capitale investito
 const COL_GAIN = "#54a24b"; // guadagni
+const COL_IMM = "#b279a2"; // equity immobiliare (mutui)
 
 /**
  * Card richiudibile con tendina: usata per gli editor di scenari e
@@ -63,6 +64,7 @@ export function Proiezione() {
         dati.eventiFuturi,
         dati.investimenti,
         dati.parametri,
+        dati.mutui ?? [],
       ),
     [dati],
   );
@@ -114,7 +116,8 @@ export function Proiezione() {
             <Info>
               Punto di partenza della proiezione: liquido attuale (dalla pagina{" "}
               <b>Saldo reale</b>, curva potere d'acquisto) + capitale investito
-              + guadagni maturati al primo mese proiettato.
+              + guadagni maturati + equity immobiliare dei mutui, al primo mese
+              proiettato.
             </Info>
           </div>
           <div className="valore">{euro(ris.patrimonioOggi)}</div>
@@ -311,15 +314,32 @@ export function Proiezione() {
                 fill={COL_GAIN}
                 fillOpacity={0.5}
               />
+              {(dati.mutui?.length ?? 0) > 0 && (
+                <Area
+                  type="monotone"
+                  dataKey="immobile"
+                  name="Immobile (equity)"
+                  stackId="1"
+                  stroke={COL_IMM}
+                  fill={COL_IMM}
+                  fillOpacity={0.5}
+                />
+              )}
             </AreaChart>
           </ResponsiveContainer>
         </div>
         <p className="muted" style={{ fontSize: 12 }}>
           L'area totale è il patrimonio netto: <b>liquido</b> (cash disponibile,
           già al netto di versamenti e spese grosse), <b>capitale investito</b>{" "}
-          (vincolato, include i giroconti/PAC già trasferiti) e <b>guadagni</b>{" "}
-          (interessi composti). Il capitale resta investito fino alla pensione:
-          solo lì le tranche maturano e tornano nel liquido.
+          (vincolato, include i giroconti/PAC già trasferiti), <b>guadagni</b>{" "}
+          (interessi composti){(dati.mutui?.length ?? 0) > 0 && (
+            <>
+              {" "}e <b>immobile</b> (anticipo + capitale del mutuo rimborsato,
+              che cresce rata dopo rata — la rata va inclusa nelle spese degli
+              scenari)
+            </>
+          )}. Il capitale resta investito fino alla pensione: solo lì le
+          tranche maturano e tornano nel liquido.
         </p>
         </div>
 

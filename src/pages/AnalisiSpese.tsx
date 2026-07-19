@@ -48,8 +48,13 @@ export function AnalisiSpese() {
   }, [dati.transazioni, da, a]);
 
   const analisi = useMemo(
-    () => analizza(transazioniFiltrate, dati.categorie.map((c) => c.nome)),
-    [transazioniFiltrate, dati.categorie],
+    () =>
+      analizza(
+        transazioniFiltrate,
+        dati.categorie.map((c) => c.nome),
+        dati.mutui ?? [],
+      ),
+    [transazioniFiltrate, dati.categorie, dati.mutui],
   );
 
   const righe: RigaMese[] =
@@ -177,6 +182,25 @@ export function AnalisiSpese() {
           </div>
           <div className="valore">{euro(analisi.totaleTasse)}</div>
         </div>
+        {analisi.totaleMutuoCapitale > 0 && (
+          <div className="stat">
+            <div className="etichetta">
+              Mutuo — quota capitale
+              <Info>
+                Parte delle rate di mutuo (movimenti marcati <b>Mutuo</b>) che
+                rimborsa il debito: è un investimento nell'immobile, non una
+                spesa. La quota interessi del periodo compare invece tra le
+                spese come categoria &quot;Mutuo (interessi)&quot;. Il riparto
+                segue il piano di ammortamento configurato in{" "}
+                <b>Impostazioni</b>.
+              </Info>
+            </div>
+            <div className="valore">{euro(analisi.totaleMutuoCapitale)}</div>
+            <div className="muted" style={{ fontSize: 12 }}>
+              equity immobile, non spesa
+            </div>
+          </div>
+        )}
         {analisi.totaleTrasferimenti > 0 && (
           <div className="stat">
             <div className="etichetta">

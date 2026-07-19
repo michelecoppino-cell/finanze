@@ -11,7 +11,8 @@ import {
 } from "recharts";
 import { useApp } from "../store/AppStore";
 import { calcolaSaldo, campiona } from "../engine/saldo";
-import { euro } from "../util";
+import { equityImmobili } from "../engine/mutuo";
+import { euro, toIso } from "../util";
 import { Info } from "../components/Info";
 
 const COLORI = {
@@ -43,6 +44,13 @@ export function Saldo() {
     }
     return { entrate, uscite, tassePagate };
   }, [dati.transazioni]);
+
+  // Equity immobiliare dai mutui configurati (anticipo + capitale rimborsato).
+  const mutui = dati.mutui ?? [];
+  const equityImmobile = useMemo(
+    () => (mutui.length > 0 ? equityImmobili(mutui, toIso(new Date())) : 0),
+    [mutui],
+  );
 
   const primaData = ris.punti[0]?.data ?? "";
   const ultimaData = ris.ultimo?.data ?? "";
@@ -171,6 +179,50 @@ export function Saldo() {
               </div>
               <div className="muted" style={{ fontSize: 12 }}>
                 netto tasse + investito
+              </div>
+            </div>
+          </>
+        )}
+        {equityImmobile > 0 && (
+          <>
+            <div className="stat">
+              <div className="etichetta">
+                Immobile (equity)
+                <Info>
+                  Anticipo + capitale rimborsato con le rate scadute, dal piano
+                  di ammortamento dei mutui configurati in <b>Impostazioni</b>.
+                  Le rate e l'anticipo sono già uscite dal conto: qui la parte
+                  investita rientra nel patrimonio.
+                </Info>
+              </div>
+              <div className="valore">{euro(equityImmobile)}</div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                anticipo + capitale rimborsato
+              </div>
+            </div>
+            <div className="stat">
+              <div className="etichetta">
+                Patrimonio con immobile
+                <Info>
+                  Netto tasse + investito (giroconti) + equity immobiliare.
+                  <br />
+                  {euro(u?.nettoTasse, true)} + {euro(u?.investito ?? 0, true)}{" "}
+                  + {euro(equityImmobile, true)} ={" "}
+                  <b>
+                    {euro(
+                      u ? u.nettoTasse + (u.investito ?? 0) + equityImmobile : undefined,
+                      true,
+                    )}
+                  </b>
+                </Info>
+              </div>
+              <div className="valore" style={{ color: COLORI.totale }}>
+                {euro(
+                  u ? u.nettoTasse + (u.investito ?? 0) + equityImmobile : undefined,
+                )}
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                incluso l'immobile (al costo)
               </div>
             </div>
           </>
