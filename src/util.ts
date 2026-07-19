@@ -63,10 +63,27 @@ const FMT_EUR2 = new Intl.NumberFormat("it-IT", {
   minimumFractionDigits: 2,
   maximumFractionDigits: 2,
 });
+const FMT_NUM = new Intl.NumberFormat("it-IT", { maximumFractionDigits: 0 });
+
+/** Separatore delle migliaia: puntino alto, per distinguerlo dai decimali. */
+const SEP_MIGLIAIA = "·";
+
+function conPuntinoAlto(fmt: Intl.NumberFormat, n: number): string {
+  return fmt
+    .formatToParts(n)
+    .map((p) => (p.type === "group" ? SEP_MIGLIAIA : p.value))
+    .join("");
+}
 
 export function euro(n: number | undefined, decimali = false): string {
   if (n === undefined || isNaN(n)) return "—";
-  return decimali ? FMT_EUR2.format(n) : FMT_EUR.format(n);
+  return conPuntinoAlto(decimali ? FMT_EUR2 : FMT_EUR, n);
+}
+
+/** Numero intero con separatore migliaia (puntino alto). */
+export function numero(n: number | undefined): string {
+  if (n === undefined || isNaN(n)) return "—";
+  return conPuntinoAlto(FMT_NUM, n);
 }
 
 const MESI = [

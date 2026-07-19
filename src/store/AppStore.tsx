@@ -10,6 +10,8 @@ import {
 } from "react";
 import { DatiApp, datiVuoti } from "../types";
 import { caricaDati, salvaDati } from "./db";
+import { importaJson } from "./io";
+import { segnaModificaLocale, ultimaModificaLocale } from "./sync";
 
 // MSAL e' pesante: lo carichiamo solo su richiesta (import dinamico), cosi' chi
 // non usa OneDrive non paga il costo nel bundle iniziale.
@@ -18,6 +20,10 @@ const onedrive = () => import("./onedrive");
 interface Ctx {
   dati: DatiApp;
   caricato: boolean;
+  /** Messaggio informativo dopo un sync automatico da OneDrive (o null). */
+  avvisoSync: string | null;
+  /** Chiude il messaggio di sync. */
+  chiudiAvvisoSync: () => void;
   /** Aggiorna lo stato (immutabile) e persiste su IndexedDB. */
   aggiorna: (mut: (d: DatiApp) => DatiApp) => void;
   /** Sostituisce integralmente lo stato (import). */
@@ -29,38 +35,88 @@ const AppCtx = createContext<Ctx | null>(null);
 export function AppProvider({ children }: { children: ReactNode }) {
   const [dati, setDati] = useState<DatiApp>(datiVuoti);
   const [caricato, setCaricato] = useState(false);
+  const [avvisoSync, setAvvisoSync] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const timerOneDrive = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // True appena l'utente modifica qualcosa: il sync all'avvio non deve mai
+  // sovrascrivere modifiche fatte mentre il download era in corso.
+  const modificato = useRef(false);
 
   useEffect(() => {
+    let attivo = true;
     caricaDati()
       .then((d) => {
+        if (!attivo) return;
         if (d) setDati(d);
-        // Bootstrap OneDrive: completa un eventuale login tornato via redirect e
-        // ripristina la sessione (per l'auto-salvataggio). Carica MSAL solo se
-        // serve davvero — client id noto o risposta di redirect nell'URL — cosi'
-        // chi non usa OneDrive non paga nulla all'avvio.
-        let cidLs: string | null = null;
-        try {
-          cidLs = localStorage.getItem("finanze.onedrive.clientId");
-        } catch {
-          /* localStorage non disponibile */
-        }
-        const cid = d?.parametri.oneDriveClientId ?? cidLs ?? null;
-        const haRispostaRedirect = /[#?&](code|error)=/.test(
-          window.location.href,
-        );
-        if (cid || haRispostaRedirect) {
-          void onedrive()
-            .then((m) => {
-              const clientId = cid ?? m.clientIdRicordato();
-              return clientId ? m.ripristinaSessione(clientId) : null;
-            })
-            .catch(() => {});
-        }
+        void bootstrapOneDrive(d, () => attivo);
       })
       .finally(() => setCaricato(true));
+    return () => {
+      attivo = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /**
+   * Bootstrap OneDrive all'avvio: completa un eventuale login tornato via
+   * redirect, ripristina la sessione e — se il backup remoto e' piu' recente
+   * dell'ultima modifica locale — lo carica automaticamente. Tutto in
+   * background e in modo silenzioso: nessun redirect, gli errori non bloccano
+   * l'app (il dato locale resta valido).
+   */
+  async function bootstrapOneDrive(
+    locale: DatiApp | null,
+    ancoraAttivo: () => boolean,
+  ) {
+    let cidLs: string | null = null;
+    try {
+      cidLs = localStorage.getItem("finanze.onedrive.clientId");
+    } catch {
+      /* localStorage non disponibile */
+    }
+    const cid = locale?.parametri.oneDriveClientId ?? cidLs ?? null;
+    const haRispostaRedirect = /[#?&](code|error)=/.test(window.location.href);
+    if (!cid && !haRispostaRedirect) return; // OneDrive non usato: non caricare MSAL
+
+    try {
+      const m = await onedrive();
+      const clientId = cid ?? m.clientIdRicordato();
+      if (!clientId) return;
+      const utente = await m.ripristinaSessione(clientId);
+      if (!utente || !ancoraAttivo()) return;
+
+      // Scarica il backup remoto (solo token silenzioso: niente redirect).
+      const testo = await m.scaricaTestoDaOneDrive(clientId, true);
+      if (!testo || !ancoraAttivo()) return;
+      const remoto = importaJson(testo);
+
+      // Carica il remoto solo se e' certamente piu' recente: serve il suo
+      // `salvatoIl` e un marcatore locale piu' vecchio. Se il marcatore manca
+      // ma esistono gia' dati locali, non rischiare di sovrascriverli.
+      const marcatore = ultimaModificaLocale();
+      const localeVuoto = !locale || locale.transazioni.length === 0;
+      const remotoPiuNuovo =
+        !!remoto.salvatoIl && (!marcatore || remoto.salvatoIl > marcatore);
+      const daCaricare = localeVuoto
+        ? remoto.transazioni.length > 0
+        : remotoPiuNuovo && !!marcatore;
+
+      if (!daCaricare) {
+        if (!marcatore) segnaModificaLocale(); // d'ora in poi il confronto funziona
+        return;
+      }
+      if (modificato.current || !ancoraAttivo()) return;
+
+      setDati(remoto);
+      void salvaDati(remoto);
+      segnaModificaLocale(remoto.salvatoIl);
+      setAvvisoSync(
+        `Dati aggiornati da OneDrive (${remoto.transazioni.length} movimenti).`,
+      );
+    } catch (e) {
+      console.warn("Sincronizzazione OneDrive all'avvio non riuscita:", e);
+    }
+  }
 
   // Auto-salvataggio su OneDrive (debounce piu' lungo del salvataggio locale,
   // per non moltiplicare le chiamate di rete). Silenzioso: gli errori non
@@ -80,6 +136,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Persistenza con debounce per non scrivere su ogni tasto.
   function persisti(d: DatiApp) {
+    modificato.current = true;
+    segnaModificaLocale();
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => {
       void salvaDati(d);
@@ -96,12 +154,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }
 
   function sostituisci(d: DatiApp) {
+    modificato.current = true;
+    segnaModificaLocale();
     setDati(d);
     void salvaDati(d);
+    sincronizzaOneDrive(d);
   }
 
   return (
-    <AppCtx.Provider value={{ dati, caricato, aggiorna, sostituisci }}>
+    <AppCtx.Provider
+      value={{
+        dati,
+        caricato,
+        avvisoSync,
+        chiudiAvvisoSync: () => setAvvisoSync(null),
+        aggiorna,
+        sostituisci,
+      }}
+    >
       {children}
     </AppCtx.Provider>
   );
