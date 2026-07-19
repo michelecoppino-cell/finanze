@@ -67,6 +67,13 @@ export interface AnnoTasse {
   aggiuntivi?: number; // F - aggiuntivi ipotizzati
   fatturato?: number; // J - fatturato dell'anno
   tassazione?: number; // K - aliquota (decimale, es. 0.1865)
+  /**
+   * Esclude l'anno dal calcolo del saldo reale (Saldo!maturate): utile per
+   * anni ricostruiti senza le vere transazioni/pagamenti tasse, dove
+   * sottrarre l'importo maturato creerebbe un buco mai compensato da un
+   * pagamento reale.
+   */
+  escludiDalSaldo?: boolean;
 }
 
 /** Evento della proiezione futura (foglio "SpeseEntrateFuturi"). */

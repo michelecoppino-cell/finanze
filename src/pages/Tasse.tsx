@@ -112,6 +112,10 @@ export function Tasse() {
           giorno-per-giorno per correggere il saldo (colonne "netto tasse" e
           "potere d'acquisto" della pagina Saldo). Puoi lasciare i valori reali
           (Inarcassa + IRPEF) oppure la stima da fatturato × aliquota.
+          Se per un anno non hai le transazioni/pagamenti reali (es. anni
+          ricostruiti), spunta <b>"Escludi dal saldo"</b>: altrimenti le tasse
+          maturate di quell'anno vengono sottratte per sempre senza che nessun
+          pagamento le compensi.
         </p>
       </div>
 
@@ -127,6 +131,15 @@ export function Tasse() {
               <th className="num">Aliquota</th>
               <th className="num">Totale tasse</th>
               <th className="num">Al giorno</th>
+              <th>
+                Escludi dal saldo
+                <Info>
+                  Se spuntato, questo anno non viene sottratto nel calcolo del
+                  saldo reale (pagina Saldo). Utile per anni ricostruiti senza
+                  le vere transazioni/pagamenti tasse: altrimenti l'importo
+                  maturato resta un buco mai compensato da un pagamento reale.
+                </Info>
+              </th>
               <th></th>
             </tr>
           </thead>
@@ -181,6 +194,15 @@ export function Tasse() {
                     <b>{euro(stima, true)}</b>
                   </td>
                   <td className="num">{euro(stima / 365, true)}</td>
+                  <td style={{ textAlign: "center" }}>
+                    <input
+                      type="checkbox"
+                      checked={t.escludiDalSaldo ?? false}
+                      onChange={(e) =>
+                        modifica(t.anno, { escludiDalSaldo: e.target.checked || undefined })
+                      }
+                    />
+                  </td>
                   <td>
                     <button
                       className="secondario"
