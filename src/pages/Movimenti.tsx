@@ -1226,6 +1226,50 @@ function TabellaMovimenti({
   // Ricorda se l'ultimo click su un checkbox riga aveva Shift premuto: il
   // click arriva prima del change, quindi lo leggiamo lì (come in Excel).
   const shiftPremuto = useRef(false);
+
+  // ---------- Modifica manuale di un importo ----------
+  // Volutamente scomoda: serve un doppio click per entrare in modifica (non
+  // basta un click come per le altre celle) e, per confermare, l'utente deve
+  // rispondere a un popup di conferma con il vecchio e il nuovo valore. Gli
+  // importi arrivano dagli estratti conto importati: modificarli deve essere
+  // un'eccezione deliberata, non un gesto accidentale.
+  const [cellaInModifica, setCellaInModifica] = useState<{
+    id: string;
+    campo: "entrate" | "uscite";
+  } | null>(null);
+  const [valoreInModifica, setValoreInModifica] = useState("");
+
+  function iniziaModificaImporto(t: Transazione, campo: "entrate" | "uscite") {
+    if (t.annullata) return;
+    setCellaInModifica({ id: t.id, campo });
+    setValoreInModifica(t[campo] ? String(t[campo]).replace(".", ",") : "");
+  }
+
+  function annullaModificaImporto() {
+    setCellaInModifica(null);
+    setValoreInModifica("");
+  }
+
+  function confermaModificaImporto(t: Transazione) {
+    if (!cellaInModifica || cellaInModifica.id !== t.id) return;
+    const campo = cellaInModifica.campo;
+    const attuale = t[campo];
+    const nuovo = parseNumeroIt(valoreInModifica);
+    if (nuovo === undefined || nuovo < 0 || nuovo === (attuale ?? 0)) {
+      annullaModificaImporto();
+      return;
+    }
+    const ok = confirm(
+      `Confermi la modifica manuale di questo movimento?\n\n` +
+        `${campo === "entrate" ? "Entrata" : "Uscita"}: ${euro(attuale, true)} → ${euro(nuovo, true)}\n\n` +
+        `L'importo non corrisponderà più a quello dell'estratto conto importato.`,
+    );
+    if (ok) {
+      onModifica(t.id, { [campo]: nuovo || undefined });
+    }
+    annullaModificaImporto();
+  }
+
   return (
     <>
       <p className="muted" style={{ margin: "0 0 8px" }}>
@@ -1593,27 +1637,70 @@ function TabellaMovimenti({
                     <span className="muted">{t.tipologia}</span>
                   )}
                 </td>
-                <td className="num entrata cella-importo">
-                  {t.entrate ? euro(t.entrate, true) : ""}
+                <td
+                  className="num entrata cella-importo cella-importo-mod"
+                  onDoubleClick={() => iniziaModificaImporto(t, "entrate")}
+                  title={t.annullata ? undefined : "Doppio click per correggere l'importo"}
+                >
+                  {cellaInModifica?.id === t.id &&
+                  cellaInModifica.campo === "entrate" ? (
+                    <input
+                      autoFocus
+                      className="input-importo-inline"
+                      inputMode="decimal"
+                      value={valoreInModifica}
+                      onChange={(e) => setValoreInModifica(e.target.value)}
+                      onBlur={() => confermaModificaImporto(t)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") e.currentTarget.blur();
+                        else if (e.key === "Escape") annullaModificaImporto();
+                      }}
+                    />
+                  ) : t.entrate ? (
+                    euro(t.entrate, true)
+                  ) : (
+                    ""
+                  )}
                 </td>
                 <td
                   className={
-                    "num cella-importo " +
+                    "num cella-importo cella-importo-mod " +
                     (t.trasferimento || t.girocontoInterno || t.mutuo
                       ? "muted"
                       : "uscita")
                   }
+                  onDoubleClick={() => iniziaModificaImporto(t, "uscite")}
                   title={
-                    t.trasferimento
-                      ? "Giro verso investimenti (non è una spesa)"
-                      : t.girocontoInterno
-                        ? "Giroconto interno tra conti propri (non è una spesa)"
-                        : t.mutuo
-                          ? "Rata mutuo (solo la quota interessi è una spesa)"
-                          : ""
+                    t.annullata
+                      ? undefined
+                      : t.trasferimento
+                        ? "Giro verso investimenti (non è una spesa) · Doppio click per correggere l'importo"
+                        : t.girocontoInterno
+                          ? "Giroconto interno tra conti propri (non è una spesa) · Doppio click per correggere l'importo"
+                          : t.mutuo
+                            ? "Rata mutuo (solo la quota interessi è una spesa) · Doppio click per correggere l'importo"
+                            : "Doppio click per correggere l'importo"
                   }
                 >
-                  {t.uscite ? euro(t.uscite, true) : ""}
+                  {cellaInModifica?.id === t.id &&
+                  cellaInModifica.campo === "uscite" ? (
+                    <input
+                      autoFocus
+                      className="input-importo-inline"
+                      inputMode="decimal"
+                      value={valoreInModifica}
+                      onChange={(e) => setValoreInModifica(e.target.value)}
+                      onBlur={() => confermaModificaImporto(t)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") e.currentTarget.blur();
+                        else if (e.key === "Escape") annullaModificaImporto();
+                      }}
+                    />
+                  ) : t.uscite ? (
+                    euro(t.uscite, true)
+                  ) : (
+                    ""
+                  )}
                 </td>
                 <td>
                   <select
