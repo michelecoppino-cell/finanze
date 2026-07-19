@@ -1,8 +1,7 @@
 import { useMemo } from "react";
 import { useApp } from "../store/AppStore";
-import { AnnoTasse } from "../types";
-import { analizza } from "../engine/analisi";
-import { euro, MESI } from "../util";
+import { AllocazioneTasse, AnnoTasse, Transazione } from "../types";
+import { euro } from "../util";
 import { Info } from "../components/Info";
 
 /** Totale tasse dichiarato per l'anno: importi reali se presenti, altrimenti stima da fatturato x aliquota. */
@@ -13,42 +12,127 @@ function stimaAnno(t: AnnoTasse): number {
   return 0;
 }
 
+/** Allocazione di un movimento tasse: se non ancora compilata, una riga sola
+ * sull'anno della data del movimento, con importi da compilare. */
+function allocazioneDi(t: Transazione): AllocazioneTasse[] {
+  return t.allocazioneTasse && t.allocazioneTasse.length > 0
+    ? t.allocazioneTasse
+    : [{ anno: Number(t.data.slice(0, 4)) }];
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
 export function Tasse() {
   const { dati, aggiorna } = useApp();
   const righe = [...dati.tasse].sort((a, b) => a.anno - b.anno);
 
-  // Confronto mensile: quanto è stato REALMENTE pagato (movimenti con flag
-  // "tasse") mese per mese, per anno, contro il totale DICHIARATO nella
-  // tabella sopra. Non torna mai esattamente: in Italia si paga a rate
-  // (acconti/saldo/conguagli) che scavalcano l'anno fiscale di competenza,
-  // quindi il confronto è solo un termometro per accorgersi di anomalie
-  // grosse (spunte dimenticate, anni senza alcun pagamento tracciato).
-  const analisi = useMemo(
-    () => analizza(dati.transazioni, dati.categorie.map((c) => c.nome), dati.mutui ?? []),
-    [dati.transazioni, dati.categorie, dati.mutui],
+  // ---------- Verifica pagamenti: allocazione dei movimenti "tasse" ----------
+  // Ogni movimento con flag "tasse" (pagina Movimenti) puo' essere ripartito
+  // tra Inarcassa/Imposta e imputato a uno o due anni: un versamento spesso
+  // copre il saldo dell'anno precedente + l'acconto di quello in corso. Dalla
+  // ripartizione si ricava il "pagato" reale da confrontare con i valori
+  // dichiarati nella tabella "Dati fiscali per anno".
+
+  function modificaTransazione(id: string, patch: Partial<Transazione>) {
+    aggiorna((d) => ({
+      ...d,
+      transazioni: d.transazioni.map((t) => (t.id === id ? { ...t, ...patch } : t)),
+    }));
+  }
+
+  function aggiornaRigaAlloc(t: Transazione, idx: number, patch: Partial<AllocazioneTasse>) {
+    const attuale = allocazioneDi(t);
+    modificaTransazione(t.id, {
+      allocazioneTasse: attuale.map((a, i) => (i === idx ? { ...a, ...patch } : a)),
+    });
+  }
+
+  function aggiungiRigaAlloc(t: Transazione) {
+    const attuale = allocazioneDi(t);
+    modificaTransazione(t.id, {
+      allocazioneTasse: [...attuale, { anno: attuale[attuale.length - 1].anno + 1 }],
+    });
+  }
+
+  function rimuoviRigaAlloc(t: Transazione, idx: number) {
+    const attuale = allocazioneDi(t);
+    if (attuale.length <= 1) return;
+    modificaTransazione(t.id, { allocazioneTasse: attuale.filter((_, i) => i !== idx) });
+  }
+
+  const movimentiTasse = useMemo(
+    () =>
+      dati.transazioni
+        .filter((t) => t.tasse && !t.annullata)
+        .sort((a, b) => a.data.localeCompare(b.data)),
+    [dati.transazioni],
   );
 
-  const confrontoAnni = useMemo(() => {
-    const perAnno = new Map<number, number[]>();
-    for (const r of analisi.mesi) {
-      const anno = Number(r.mese.slice(0, 4));
-      const mese = Number(r.mese.slice(5, 7)) - 1;
-      if (!perAnno.has(anno)) perAnno.set(anno, Array(12).fill(0));
-      perAnno.get(anno)![mese] = r.tasse;
+  const pagatoPerAnno = useMemo(() => {
+    const m = new Map<number, { inarcassa: number; imposta: number }>();
+    for (const t of movimentiTasse) {
+      for (const a of allocazioneDi(t)) {
+        if (!a.anno) continue;
+        const riga = m.get(a.anno) ?? { inarcassa: 0, imposta: 0 };
+        riga.inarcassa += a.inarcassa ?? 0;
+        riga.imposta += a.imposta ?? 0;
+        m.set(a.anno, riga);
+      }
     }
-    // Include anche gli anni presenti solo nella tabella "Dati fiscali" (es.
-    // un anno dichiarato ma senza alcun movimento importato).
-    for (const t of righe) if (!perAnno.has(t.anno)) perAnno.set(t.anno, Array(12).fill(0));
+    return m;
+  }, [movimentiTasse]);
 
-    const dichiaratoPerAnno = new Map(righe.map((t) => [t.anno, stimaAnno(t)]));
-
-    return [...perAnno.keys()].sort((a, b) => a - b).map((anno) => {
-      const mesi = perAnno.get(anno)!;
-      const pagato = mesi.reduce((s, v) => s + v, 0);
-      const dichiarato = dichiaratoPerAnno.get(anno) ?? 0;
-      return { anno, mesi, pagato, dichiarato, differenza: pagato - dichiarato };
+  const confrontoAnni = useMemo(() => {
+    const anni = new Set<number>([...righe.map((t) => t.anno), ...pagatoPerAnno.keys()]);
+    return [...anni].sort((a, b) => a - b).map((anno) => {
+      const dich = righe.find((t) => t.anno === anno);
+      const previstoInarcassa = dich?.inarcassa ?? 0;
+      const previstoImposta = dich?.irpef ?? 0;
+      const pag = pagatoPerAnno.get(anno) ?? { inarcassa: 0, imposta: 0 };
+      return {
+        anno,
+        previstoInarcassa,
+        pagatoInarcassa: pag.inarcassa,
+        previstoImposta,
+        pagatoImposta: pag.imposta,
+        previstoTotale: previstoInarcassa + previstoImposta,
+        pagatoTotale: pag.inarcassa + pag.imposta,
+      };
     });
-  }, [analisi.mesi, righe]);
+  }, [righe, pagatoPerAnno]);
+
+  const totaliGenerali = useMemo(
+    () =>
+      confrontoAnni.reduce(
+        (acc, r) => ({
+          previstoInarcassa: acc.previstoInarcassa + r.previstoInarcassa,
+          pagatoInarcassa: acc.pagatoInarcassa + r.pagatoInarcassa,
+          previstoImposta: acc.previstoImposta + r.previstoImposta,
+          pagatoImposta: acc.pagatoImposta + r.pagatoImposta,
+          previstoTotale: acc.previstoTotale + r.previstoTotale,
+          pagatoTotale: acc.pagatoTotale + r.pagatoTotale,
+        }),
+        {
+          previstoInarcassa: 0,
+          pagatoInarcassa: 0,
+          previstoImposta: 0,
+          pagatoImposta: 0,
+          previstoTotale: 0,
+          pagatoTotale: 0,
+        },
+      ),
+    [confrontoAnni],
+  );
+
+  const daCompletare = movimentiTasse.filter((t) => {
+    const allocato = allocazioneDi(t).reduce(
+      (s, a) => s + (a.inarcassa ?? 0) + (a.imposta ?? 0),
+      0,
+    );
+    return Math.abs(round2(allocato - (t.uscite ?? 0))) > 0.01;
+  }).length;
 
   function modifica(anno: number, patch: Partial<AnnoTasse>) {
     aggiorna((d) => ({
@@ -256,38 +340,178 @@ export function Tasse() {
         </button>
       </div>
 
-      {confrontoAnni.length > 0 && (
+      {movimentiTasse.length > 0 && (
         <div className="card" style={{ marginTop: 24 }}>
-          <h3>
-            Pagato vs dichiarato, mese per mese
-            <Info>
-              Colonne Gen–Dic: somma dei movimenti con flag <b>Tasse</b> di
-              quel mese (dalla pagina Movimenti). "Dichiarato" è il totale
-              della riga corrispondente nella tabella sopra.
-              <br />
-              <br />
-              Non aspettarti che tornino esatti anno per anno: in Italia si
-              paga a rate (acconti a giugno/novembre, saldo dell'anno
-              precedente, conguagli Inarcassa) che scavalcano l'anno fiscale
-              di competenza. Usalo per accorgerti di anomalie grosse — un
-              anno senza nessun pagamento tracciato, o un importo dichiarato
-              molto più alto del pagato su più anni di fila — non come un
-              controllo esatto.
-            </Info>
-          </h3>
+          <div className="riga-azioni" style={{ justifyContent: "space-between" }}>
+            <h3 style={{ margin: 0 }}>
+              Verifica pagamenti
+              <Info>
+                Tutti i movimenti con la spunta <b>Tasse</b> (pagina
+                Movimenti). Per ognuno indica quanto va a <b>Inarcassa</b> e
+                quanto a <b>Imposta</b> (IRPEF/imposta sostitutiva) e l'anno
+                di competenza. Un versamento spesso copre il saldo dell'anno
+                precedente + l'acconto di quello in corso: usa{" "}
+                <b>"+ anno"</b> per dividerlo su due (o più) anni.
+                <br />
+                <br />I totali "Pagato" della tabella sotto si costruiscono
+                da questa ripartizione e si confrontano con "Inarcassa €" e
+                "IRPEF €" dichiarati nella tabella in cima alla pagina.
+              </Info>
+            </h3>
+            {daCompletare > 0 && (
+              <span className="chip">{daCompletare} da completare</span>
+            )}
+          </div>
+          <div className="tabella-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Data</th>
+                  <th>Causale</th>
+                  <th className="num">Importo</th>
+                  <th className="num">Anno</th>
+                  <th className="num">Inarcassa €</th>
+                  <th className="num">Imposta €</th>
+                  <th className="num">
+                    Da allocare
+                    <Info>
+                      Parte dell'importo del movimento non ancora assegnata a
+                      Inarcassa o Imposta. Quando torna a zero, il movimento è
+                      completamente ripartito.
+                    </Info>
+                  </th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {movimentiTasse.flatMap((t) => {
+                  const alloc = allocazioneDi(t);
+                  const allocato = alloc.reduce(
+                    (s, a) => s + (a.inarcassa ?? 0) + (a.imposta ?? 0),
+                    0,
+                  );
+                  const residuo = round2((t.uscite ?? 0) - allocato);
+                  return alloc.map((a, i) => (
+                    <tr key={t.id + "-" + i}>
+                      {i === 0 && (
+                        <>
+                          <td rowSpan={alloc.length}>{t.data}</td>
+                          <td
+                            rowSpan={alloc.length}
+                            title={t.causale}
+                            className="cella-causale"
+                          >
+                            {(t.causale ?? "").slice(0, 46) || (
+                              <span className="muted">{t.tipologia}</span>
+                            )}
+                          </td>
+                          <td rowSpan={alloc.length} className="num">
+                            {euro(t.uscite, true)}
+                          </td>
+                        </>
+                      )}
+                      <td className="num">
+                        <input
+                          type="number"
+                          style={{ width: 68 }}
+                          value={a.anno}
+                          onChange={(e) =>
+                            aggiornaRigaAlloc(t, i, {
+                              anno: Number(e.target.value) || a.anno,
+                            })
+                          }
+                        />
+                      </td>
+                      <td className="num">
+                        <input
+                          type="number"
+                          step="0.01"
+                          style={{ width: 90 }}
+                          value={a.inarcassa ?? ""}
+                          onChange={(e) =>
+                            aggiornaRigaAlloc(t, i, {
+                              inarcassa:
+                                e.target.value === ""
+                                  ? undefined
+                                  : Number(e.target.value),
+                            })
+                          }
+                        />
+                      </td>
+                      <td className="num">
+                        <input
+                          type="number"
+                          step="0.01"
+                          style={{ width: 90 }}
+                          value={a.imposta ?? ""}
+                          onChange={(e) =>
+                            aggiornaRigaAlloc(t, i, {
+                              imposta:
+                                e.target.value === ""
+                                  ? undefined
+                                  : Number(e.target.value),
+                            })
+                          }
+                        />
+                      </td>
+                      {i === 0 && (
+                        <td rowSpan={alloc.length} className="num">
+                          {Math.abs(residuo) > 0.01 ? (
+                            <span className="muted">{euro(residuo, true)}</span>
+                          ) : (
+                            "✓"
+                          )}
+                        </td>
+                      )}
+                      <td>
+                        <span className="riga-azioni" style={{ gap: 4 }}>
+                          {alloc.length > 1 && (
+                            <button
+                              className="secondario"
+                              style={{ padding: "2px 6px" }}
+                              onClick={() => rimuoviRigaAlloc(t, i)}
+                            >
+                              ✕
+                            </button>
+                          )}
+                          {i === alloc.length - 1 && (
+                            <button
+                              className="secondario"
+                              style={{ padding: "2px 6px" }}
+                              title="Dividi questo pagamento su un altro anno"
+                              onClick={() => aggiungiRigaAlloc(t)}
+                            >
+                              + anno
+                            </button>
+                          )}
+                        </span>
+                      </td>
+                    </tr>
+                  ));
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {confrontoAnni.length > 0 && (
+        <div className="card" style={{ marginTop: 16 }}>
+          <h3>Previsto vs pagato, per anno</h3>
           <div className="tabella-wrap">
             <table>
               <thead>
                 <tr>
                   <th>Anno</th>
-                  {MESI.map((m) => (
-                    <th key={m} className="num">
-                      {m}
-                    </th>
-                  ))}
-                  <th className="num">Pagato</th>
-                  <th className="num">Dichiarato</th>
-                  <th className="num">Differenza</th>
+                  <th className="num">Inarcassa previsto</th>
+                  <th className="num">Inarcassa pagato</th>
+                  <th className="num">Δ</th>
+                  <th className="num">Imposta previsto</th>
+                  <th className="num">Imposta pagato</th>
+                  <th className="num">Δ</th>
+                  <th className="num">Totale previsto</th>
+                  <th className="num">Totale pagato</th>
+                  <th className="num">Δ</th>
                 </tr>
               </thead>
               <tbody>
@@ -296,21 +520,57 @@ export function Tasse() {
                     <td>
                       <b>{r.anno}</b>
                     </td>
-                    {r.mesi.map((v, i) => (
-                      <td key={i} className="num">
-                        {v ? euro(v) : ""}
-                      </td>
-                    ))}
+                    <td className="num">{euro(r.previstoInarcassa, true)}</td>
+                    <td className="num">{euro(r.pagatoInarcassa, true)}</td>
                     <td className="num">
-                      <b>{euro(r.pagato, true)}</b>
+                      {euro(r.pagatoInarcassa - r.previstoInarcassa, true)}
                     </td>
-                    <td className="num">{euro(r.dichiarato, true)}</td>
+                    <td className="num">{euro(r.previstoImposta, true)}</td>
+                    <td className="num">{euro(r.pagatoImposta, true)}</td>
                     <td className="num">
-                      {r.dichiarato > 0 ? euro(r.differenza, true) : "—"}
+                      {euro(r.pagatoImposta - r.previstoImposta, true)}
+                    </td>
+                    <td className="num">
+                      <b>{euro(r.previstoTotale, true)}</b>
+                    </td>
+                    <td className="num">
+                      <b>{euro(r.pagatoTotale, true)}</b>
+                    </td>
+                    <td className="num">
+                      {euro(r.pagatoTotale - r.previstoTotale, true)}
                     </td>
                   </tr>
                 ))}
               </tbody>
+              <tfoot>
+                <tr>
+                  <th>Totale</th>
+                  <th className="num">{euro(totaliGenerali.previstoInarcassa, true)}</th>
+                  <th className="num">{euro(totaliGenerali.pagatoInarcassa, true)}</th>
+                  <th className="num">
+                    {euro(
+                      totaliGenerali.pagatoInarcassa - totaliGenerali.previstoInarcassa,
+                      true,
+                    )}
+                  </th>
+                  <th className="num">{euro(totaliGenerali.previstoImposta, true)}</th>
+                  <th className="num">{euro(totaliGenerali.pagatoImposta, true)}</th>
+                  <th className="num">
+                    {euro(
+                      totaliGenerali.pagatoImposta - totaliGenerali.previstoImposta,
+                      true,
+                    )}
+                  </th>
+                  <th className="num">{euro(totaliGenerali.previstoTotale, true)}</th>
+                  <th className="num">{euro(totaliGenerali.pagatoTotale, true)}</th>
+                  <th className="num">
+                    {euro(
+                      totaliGenerali.pagatoTotale - totaliGenerali.previstoTotale,
+                      true,
+                    )}
+                  </th>
+                </tr>
+              </tfoot>
             </table>
           </div>
         </div>
