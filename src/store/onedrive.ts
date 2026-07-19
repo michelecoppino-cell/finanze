@@ -13,6 +13,7 @@ import {
   type AccountInfo,
 } from "@azure/msal-browser";
 import { DatiApp } from "../types";
+import { segnaModificaLocale } from "./sync";
 
 const SCOPES = ["Files.ReadWrite.AppFolder"];
 const NOME_FILE = "finanze.json";
@@ -123,9 +124,11 @@ export async function scollega(clientId: string): Promise<void> {
 
 /**
  * Access token per Graph: silenzioso se possibile; se serve un nuovo consenso,
- * rinnova con il flusso a redirect (la pagina si sposta su Microsoft).
+ * rinnova con il flusso a redirect (la pagina si sposta su Microsoft). Con
+ * `soloSilenzioso` non avvia mai il redirect: utile per le sincronizzazioni in
+ * background all'avvio, dove spostare la pagina sarebbe invasivo.
  */
-async function token(clientId: string): Promise<string> {
+async function token(clientId: string, soloSilenzioso = false): Promise<string> {
   const m = await getMsal(clientId);
   const a = accountAttivo(m);
   if (!a) throw new Error("Non sei collegato a OneDrive.");
@@ -133,7 +136,7 @@ async function token(clientId: string): Promise<string> {
     const r = await m.acquireTokenSilent({ scopes: SCOPES, account: a });
     return r.accessToken;
   } catch (e) {
-    if (e instanceof InteractionRequiredAuthError) {
+    if (e instanceof InteractionRequiredAuthError && !soloSilenzioso) {
       ricordaClientId(clientId);
       await m.acquireTokenRedirect({ scopes: SCOPES, account: a });
       throw new Error("Reindirizzamento a Microsoft per l'accesso…");
@@ -148,27 +151,33 @@ export async function salvaSuOneDrive(
   dati: DatiApp,
 ): Promise<void> {
   const t = await token(clientId);
+  const salvatoIl = new Date().toISOString();
   const res = await fetch(GRAPH_CONTENT, {
     method: "PUT",
     headers: {
       Authorization: `Bearer ${t}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(dati, null, 2),
+    body: JSON.stringify({ ...dati, salvatoIl }, null, 2),
   });
   if (!res.ok) {
     throw new Error(`Salvataggio su OneDrive fallito (HTTP ${res.status}).`);
   }
+  // Allinea il marcatore locale: il backup remoto ora coincide con lo stato
+  // locale, quindi al prossimo avvio non va ri-scaricato.
+  segnaModificaLocale(salvatoIl);
 }
 
 /**
  * Scarica il testo del backup da OneDrive, o null se non esiste ancora.
- * Il chiamante lo passa a `importaJson` per normalizzarlo.
+ * Il chiamante lo passa a `importaJson` per normalizzarlo. Con
+ * `soloSilenzioso` non avvia mai il redirect di login (per il sync all'avvio).
  */
 export async function scaricaTestoDaOneDrive(
   clientId: string,
+  soloSilenzioso = false,
 ): Promise<string | null> {
-  const t = await token(clientId);
+  const t = await token(clientId, soloSilenzioso);
   const res = await fetch(GRAPH_CONTENT, {
     headers: { Authorization: `Bearer ${t}` },
   });

@@ -98,12 +98,42 @@ const VOCI: { id: Pagina; nome: string; icona: string }[] = [
   { id: "impostazioni", nome: "Impostazioni", icona: "⚙" },
 ];
 
+/** Avviso mostrato quando all'avvio sono stati caricati dati piu' recenti da OneDrive. */
+function BannerSync() {
+  const { avvisoSync, chiudiAvvisoSync } = useApp();
+  if (!avvisoSync) return null;
+  return (
+    <div
+      className="card banner-info"
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        gap: 12,
+        flexWrap: "wrap",
+      }}
+    >
+      <span>☁️ {avvisoSync}</span>
+      <button className="secondario" onClick={chiudiAvvisoSync}>
+        OK
+      </button>
+    </div>
+  );
+}
+
 export function App() {
   const [pagina, setPagina] = useState<Pagina>("movimenti");
   const [menuAperto, setMenuAperto] = useState(false);
 
   return (
     <div className="layout">
+      {menuAperto && (
+        <div
+          className="menu-overlay"
+          onClick={() => setMenuAperto(false)}
+          aria-hidden="true"
+        />
+      )}
       <aside className={"sidebar" + (menuAperto ? " aperta" : "")}>
         <div className="logo">Finanze</div>
         <nav>
@@ -138,6 +168,7 @@ export function App() {
           </span>
         </header>
         <main className="pagina">
+          <BannerSync />
           <BannerOneDrive />
           {pagina === "movimenti" && <Movimenti />}
           {pagina === "analisi" && <AnalisiSpese />}

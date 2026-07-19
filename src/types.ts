@@ -108,6 +108,11 @@ export interface Parametri {
 /** L'intero stato dell'app: un solo oggetto JSON esportabile/importabile. */
 export interface DatiApp {
   versione: number;
+  /**
+   * Momento (ISO) in cui questo snapshot e' stato salvato su OneDrive. Serve a
+   * confrontare backup locale e remoto all'avvio per caricare il piu' recente.
+   */
+  salvatoIl?: string;
   transazioni: Transazione[];
   categorie: Categoria[];
   tasse: AnnoTasse[];
