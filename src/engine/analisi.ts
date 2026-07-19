@@ -47,6 +47,8 @@ export function analizza(
   transazioni: Transazione[],
   categorieNote: string[],
 ): AnalisiRisultato {
+  // Le voci annullate non esistono per il calcolo.
+  transazioni = transazioni.filter((t) => !t.annullata);
   if (transazioni.length === 0) {
     return {
       mesi: [],

@@ -404,6 +404,104 @@ tr.riga-trasf > td:first-child {
   border-left: 3px solid var(--primario);
 }
 
+/* Movimento annullato: resta in elenco (traccia) ma grigio e barrato,
+   ed e' escluso da tutti i calcoli. */
+tr.riga-annullata > td {
+  color: var(--muted);
+  opacity: 0.65;
+}
+tr.riga-annullata .cella-causale,
+tr.riga-annullata .cella-importo,
+tr.riga-annullata > td:nth-child(2) {
+  text-decoration: line-through;
+}
+
+.cella-note {
+  width: 140px;
+  min-width: 90px;
+}
+
+/* Barra delle azioni sulla selezione multipla. */
+.barra-selezione {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  border-color: var(--primario);
+  position: sticky;
+  top: 54px;
+  z-index: 4;
+}
+.barra-gruppo {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ---------- Info (i): popover con la formula del valore calcolato ---------- */
+
+details.info {
+  display: inline-block;
+  position: relative;
+  vertical-align: middle;
+  margin-left: 4px;
+}
+details.info > summary {
+  list-style: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 1px solid var(--muted);
+  color: var(--muted);
+  font-size: 10px;
+  font-style: italic;
+  font-weight: 700;
+  font-family: Georgia, serif;
+  line-height: 1;
+  user-select: none;
+}
+details.info > summary::-webkit-details-marker {
+  display: none;
+}
+details.info[open] > summary {
+  border-color: var(--primario);
+  color: var(--primario);
+}
+.info-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(300px, 78vw);
+  background: var(--bg-card);
+  border: 1px solid var(--bordo);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  padding: 10px 12px;
+  z-index: 30;
+  font-size: 12px;
+  font-weight: 400;
+  font-style: normal;
+  color: var(--testo);
+  text-transform: none;
+  letter-spacing: normal;
+  text-align: left;
+  line-height: 1.5;
+  white-space: normal;
+}
+.info-pop code {
+  font-size: 11px;
+  background: var(--bg-elev);
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+
 /* ---------- Editor categorie (Impostazioni) ---------- */
 
 .lista-categorie {
@@ -472,6 +570,17 @@ tr.riga-trasf > td:first-child {
   .cat-riga {
     grid-template-columns: 1fr;
     gap: 4px;
+  }
+  /* Su schermi stretti il popover (i) diventa un foglietto in basso. */
+  .info-pop {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    bottom: 16px;
+    top: auto;
+    transform: none;
+    width: auto;
+    font-size: 13px;
   }
 }
 

@@ -1,6 +1,7 @@
 import { useApp } from "../store/AppStore";
 import { AnnoTasse } from "../types";
 import { euro } from "../util";
+import { Info } from "../components/Info";
 
 export function Tasse() {
   const { dati, aggiorna } = useApp();
@@ -43,14 +44,38 @@ export function Tasse() {
       {ultimo && (
         <div className="stat-griglia">
           <div className="stat">
-            <div className="etichetta">Accantona ogni mese</div>
+            <div className="etichetta">
+              Accantona ogni mese
+              <Info>
+                Totale tasse dell'anno più recente con dati ({ultimo.anno})
+                diviso 12 mesi.
+                <br />
+                {euro(ultimo.tot, true)} / 12 = <b>{euro(ultimo.tot / 12, true)}</b>
+                <br />
+                Il totale è Inarcassa + IRPEF + aggiuntivi, oppure fatturato ×
+                aliquota se i valori reali mancano.
+              </Info>
+            </div>
             <div className="valore">{euro(ultimo.tot / 12)}</div>
             <div className="muted" style={{ fontSize: 12 }}>
               per coprire le tasse (base {ultimo.anno})
             </div>
           </div>
           <div className="stat">
-            <div className="etichetta">Aliquota effettiva</div>
+            <div className="etichetta">
+              Aliquota effettiva
+              <Info>
+                Totale tasse {ultimo.anno} diviso il fatturato dello stesso
+                anno.
+                <br />
+                {euro(ultimo.tot, true)} / {euro(ultimo.fatturato, true)} ={" "}
+                <b>
+                  {aliquotaEff !== undefined
+                    ? (aliquotaEff * 100).toFixed(1) + "%"
+                    : "—"}
+                </b>
+              </Info>
+            </div>
             <div className="valore">
               {aliquotaEff !== undefined
                 ? (aliquotaEff * 100).toFixed(1) + "%"
@@ -61,7 +86,13 @@ export function Tasse() {
             </div>
           </div>
           <div className="stat">
-            <div className="etichetta">Accantona per ogni €</div>
+            <div className="etichetta">
+              Accantona per ogni €
+              <Info>
+                È l'aliquota effettiva espressa in centesimi: per ogni euro
+                fatturato, quanti centesimi mettere da parte per le tasse.
+              </Info>
+            </div>
             <div className="valore">
               {aliquotaEff !== undefined
                 ? (aliquotaEff * 100).toFixed(0) + " cent"
