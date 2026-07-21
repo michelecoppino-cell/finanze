@@ -8,6 +8,9 @@ import {
   Legend,
   ResponsiveContainer,
   CartesianGrid,
+  PieChart,
+  Pie,
+  Cell,
 } from "recharts";
 import { useApp } from "../store/AppStore";
 import { calcolaSaldo, campiona, PuntoSaldo } from "../engine/saldo";
@@ -19,6 +22,15 @@ const COLORI = {
   grezzo: "#8a94a6",
   nettoTasse: "#4c78a8",
   totale: "#54a24b",
+};
+
+/** Palette della torta "composizione del patrimonio": validata per contrasto
+ * e distinguibilità (protanopia/deuteranopia/tritanopia) sia su sfondo chiaro
+ * che scuro, a differenza della palette categorica usata altrove nell'app. */
+const COLORI_PATRIMONIO = {
+  immobili: "#3987e5",
+  etf: "#d95926",
+  liquidita: "#199e70",
 };
 
 /** Opacita' di riempimento delle aree: leggera, cosi' dove si sovrappongono
@@ -98,6 +110,23 @@ export function Saldo() {
 
   const conti = ris.conti;
   const coloreConto = useMemo(() => mappaColoriConto(conti), [conti]);
+
+  // Composizione del patrimonio ad oggi: liquidità (netto tasse), quota
+  // investita in PAC/ETF (giroconti) ed equity dell'immobile, come fette di
+  // una torta che sommano al 100% del patrimonio comprensivo.
+  const composizione = useMemo(() => {
+    const liquidita = Math.max(0, ris.ultimo?.nettoTasse ?? 0);
+    const etf = Math.max(0, ris.ultimo?.investito ?? 0);
+    const immobili = Math.max(0, equityImmobile);
+    const totale = liquidita + etf + immobili;
+    if (totale <= 0) return { totale, fette: [] as { nome: string; valore: number; colore: string }[] };
+    const fette = [
+      { nome: "Immobili", valore: immobili, colore: COLORI_PATRIMONIO.immobili },
+      { nome: "ETF/PAC", valore: etf, colore: COLORI_PATRIMONIO.etf },
+      { nome: "Liquidità", valore: liquidita, colore: COLORI_PATRIMONIO.liquidita },
+    ].filter((f) => f.valore > 0);
+    return { totale, fette };
+  }, [ris.ultimo, equityImmobile]);
 
   function alternaLinea(nome: string) {
     setNascoste((prev) => {
@@ -191,16 +220,20 @@ export function Saldo() {
           <>
             <div className="stat">
               <div className="etichetta">
-                Investito (giroconti)
+                Investito in PAC/ETF
                 <Info>
                   Somma delle uscite marcate <b>Giro</b> (trasferimenti verso
-                  altri conti/PAC): sono uscite dal conto ma non spese, quindi
-                  restano nel patrimonio come capitale investito.
+                  PAC/ETF o altri conti): sono uscite dal conto ma non spese,
+                  quindi restano nel patrimonio come capitale investito.
+                  Distinto dall'equity immobiliare, mostrata a parte qui
+                  sotto.
                 </Info>
               </div>
-              <div className="valore">{euro(u?.investito)}</div>
+              <div className="valore" style={{ color: COLORI_PATRIMONIO.etf }}>
+                {euro(u?.investito)}
+              </div>
               <div className="muted" style={{ fontSize: 12 }}>
-                trasferito su altri conti/PAC
+                trasferito su PAC/ETF o altri conti
               </div>
             </div>
             <div className="stat">
@@ -234,7 +267,9 @@ export function Saldo() {
                   investita rientra nel patrimonio.
                 </Info>
               </div>
-              <div className="valore">{euro(equityImmobile)}</div>
+              <div className="valore" style={{ color: COLORI_PATRIMONIO.immobili }}>
+                {euro(equityImmobile)}
+              </div>
               <div className="muted" style={{ fontSize: 12 }}>
                 anticipo + capitale rimborsato
               </div>
@@ -273,6 +308,64 @@ export function Saldo() {
           </div>
         </div>
       </div>
+
+      {composizione.fette.length > 0 && (
+        <div className="card">
+          <div
+            className="riga-azioni"
+            style={{ justifyContent: "space-between", marginBottom: 4 }}
+          >
+            <h3 style={{ margin: 0 }}>Composizione del patrimonio (oggi)</h3>
+            <span className="muted">
+              Totale: <b style={{ color: "var(--testo)" }}>{euro(composizione.totale)}</b>
+            </span>
+          </div>
+          <p className="muted" style={{ marginTop: 0 }}>
+            Fatto 100 il patrimonio di oggi, quanto è immobili (equity),
+            quanto ETF/PAC e quanto liquidità netta tasse.
+          </p>
+          <div style={{ width: "100%", height: 300 }}>
+            <ResponsiveContainer>
+              <PieChart>
+                <Pie
+                  data={composizione.fette}
+                  dataKey="valore"
+                  nameKey="nome"
+                  innerRadius={70}
+                  outerRadius={110}
+                  paddingAngle={composizione.fette.length > 1 ? 2 : 0}
+                  label={({ percent }: { percent: number }) =>
+                    `${Math.round(percent * 100)}%`
+                  }
+                  labelLine={false}
+                >
+                  {composizione.fette.map((f) => (
+                    <Cell
+                      key={f.nome}
+                      fill={f.colore}
+                      stroke="var(--bg-card)"
+                      strokeWidth={2}
+                    />
+                  ))}
+                </Pie>
+                <Tooltip
+                  formatter={(v: number, n: string) => [
+                    `${euro(v, true)} (${((v / composizione.totale) * 100).toFixed(1)}%)`,
+                    n,
+                  ]}
+                  contentStyle={{
+                    background: "var(--bg-card)",
+                    border: "1px solid var(--bordo)",
+                    borderRadius: 8,
+                    color: "var(--testo)",
+                  }}
+                />
+                <Legend />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
 
       <div className="card">
         <div
