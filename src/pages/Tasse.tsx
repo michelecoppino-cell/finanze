@@ -24,6 +24,29 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+function annoBisestile(anno: number): boolean {
+  return (anno % 4 === 0 && anno % 100 !== 0) || anno % 400 === 0;
+}
+
+function giorniAnno(anno: number): number {
+  return annoBisestile(anno) ? 366 : 365;
+}
+
+/** Numero del giorno nell'anno (1 = 1 gennaio). */
+function giornoDelAnno(data: Date): number {
+  const inizio = new Date(data.getFullYear(), 0, 1);
+  return Math.floor((data.getTime() - inizio.getTime()) / 86400000) + 1;
+}
+
+/** Quota dell'anno effettivamente trascorsa a oggi: 1 per gli anni passati,
+ * 0 per quelli futuri, giorni-trascorsi/giorni-anno per l'anno in corso. */
+function frazioneTrascorsa(anno: number, oggi: Date): number {
+  const annoOggi = oggi.getFullYear();
+  if (anno < annoOggi) return 1;
+  if (anno > annoOggi) return 0;
+  return Math.min(1, giornoDelAnno(oggi) / giorniAnno(anno));
+}
+
 export function Tasse() {
   const { dati, aggiorna } = useApp();
   const righe = [...dati.tasse].sort((a, b) => a.anno - b.anno);
@@ -84,6 +107,8 @@ export function Tasse() {
     return m;
   }, [movimentiTasse]);
 
+  const oggi = useMemo(() => new Date(), []);
+
   const confrontoAnni = useMemo(() => {
     const anni = new Set<number>([...righe.map((t) => t.anno), ...pagatoPerAnno.keys()]);
     return [...anni].sort((a, b) => a - b).map((anno) => {
@@ -91,17 +116,32 @@ export function Tasse() {
       const previstoInarcassa = dich?.inarcassa ?? 0;
       const previstoImposta = dich?.irpef ?? 0;
       const pag = pagatoPerAnno.get(anno) ?? { inarcassa: 0, imposta: 0 };
+      const previstoTotale = previstoInarcassa + previstoImposta;
+      const pagatoTotale = pag.inarcassa + pag.imposta;
+      // Per l'anno in corso le tasse maturano giorno per giorno: a oggi si
+      // deve solo la quota-parte dei giorni gia' trascorsi, non l'intera stima annua.
+      const frazione = frazioneTrascorsa(anno, oggi);
+      const dovutoInarcassa = previstoInarcassa * frazione;
+      const dovutoImposta = previstoImposta * frazione;
+      const dovutoTotale = previstoTotale * frazione;
       return {
         anno,
         previstoInarcassa,
         pagatoInarcassa: pag.inarcassa,
         previstoImposta,
         pagatoImposta: pag.imposta,
-        previstoTotale: previstoInarcassa + previstoImposta,
-        pagatoTotale: pag.inarcassa + pag.imposta,
+        previstoTotale,
+        pagatoTotale,
+        frazione,
+        dovutoInarcassa,
+        dovutoImposta,
+        dovutoTotale,
+        daVersareInarcassa: dovutoInarcassa - pag.inarcassa,
+        daVersareImposta: dovutoImposta - pag.imposta,
+        daVersareTotale: dovutoTotale - pagatoTotale,
       };
     });
-  }, [righe, pagatoPerAnno]);
+  }, [righe, pagatoPerAnno, oggi]);
 
   const totaliGenerali = useMemo(
     () =>
@@ -113,6 +153,12 @@ export function Tasse() {
           pagatoImposta: acc.pagatoImposta + r.pagatoImposta,
           previstoTotale: acc.previstoTotale + r.previstoTotale,
           pagatoTotale: acc.pagatoTotale + r.pagatoTotale,
+          dovutoInarcassa: acc.dovutoInarcassa + r.dovutoInarcassa,
+          dovutoImposta: acc.dovutoImposta + r.dovutoImposta,
+          dovutoTotale: acc.dovutoTotale + r.dovutoTotale,
+          daVersareInarcassa: acc.daVersareInarcassa + r.daVersareInarcassa,
+          daVersareImposta: acc.daVersareImposta + r.daVersareImposta,
+          daVersareTotale: acc.daVersareTotale + r.daVersareTotale,
         }),
         {
           previstoInarcassa: 0,
@@ -121,6 +167,12 @@ export function Tasse() {
           pagatoImposta: 0,
           previstoTotale: 0,
           pagatoTotale: 0,
+          dovutoInarcassa: 0,
+          dovutoImposta: 0,
+          dovutoTotale: 0,
+          daVersareInarcassa: 0,
+          daVersareImposta: 0,
+          daVersareTotale: 0,
         },
       ),
     [confrontoAnni],
@@ -498,6 +550,47 @@ export function Tasse() {
       {confrontoAnni.length > 0 && (
         <div className="card" style={{ marginTop: 16 }}>
           <h3>Previsto vs pagato, per anno</h3>
+
+          <div className="stat-griglia">
+            <div className="stat" style={{ borderColor: "var(--uscita)" }}>
+              <div className="etichetta">
+                Manca da pagare a oggi
+                <Info>
+                  Somma, su tutti gli anni, di "Dovuto a oggi" meno "Pagato".
+                  Per gli anni chiusi il dovuto è l'intero importo dichiarato;
+                  per l'anno in corso ({oggi.getFullYear()}) è solo la
+                  quota-parte dei giorni già trascorsi (
+                  {Math.round(
+                    (confrontoAnni.find((r) => r.anno === oggi.getFullYear())
+                      ?.frazione ?? 0) * 100,
+                  )}
+                  % dell'anno).
+                  <br />
+                  <br />
+                  Inarcassa: {euro(totaliGenerali.daVersareInarcassa, true)}
+                  <br />
+                  Imposta: {euro(totaliGenerali.daVersareImposta, true)}
+                </Info>
+              </div>
+              <div
+                className="valore"
+                style={{
+                  color:
+                    totaliGenerali.daVersareTotale > 0.01
+                      ? "var(--uscita)"
+                      : "var(--entrata)",
+                }}
+              >
+                {euro(Math.max(0, totaliGenerali.daVersareTotale), true)}
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                {totaliGenerali.daVersareTotale > 0.01
+                  ? "ancora da versare, considerando i giorni trascorsi"
+                  : "in regola (o in credito) a oggi"}
+              </div>
+            </div>
+          </div>
+
           <div className="tabella-wrap">
             <table>
               <thead>
@@ -512,6 +605,22 @@ export function Tasse() {
                   <th className="num">Totale previsto</th>
                   <th className="num">Totale pagato</th>
                   <th className="num">Δ</th>
+                  <th className="num">
+                    Dovuto a oggi
+                    <Info>
+                      Quota del totale previsto maturata fino a oggi: intera
+                      per gli anni chiusi, proporzionale ai giorni trascorsi
+                      per l'anno in corso.
+                    </Info>
+                  </th>
+                  <th className="num">
+                    Da versare
+                    <Info>
+                      Dovuto a oggi meno pagato. Positivo = manca ancora
+                      questo importo; negativo = pagato più di quanto
+                      maturato finora.
+                    </Info>
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -519,6 +628,12 @@ export function Tasse() {
                   <tr key={r.anno}>
                     <td>
                       <b>{r.anno}</b>
+                      {r.anno === oggi.getFullYear() && (
+                        <span className="muted" style={{ fontSize: 11 }}>
+                          {" "}
+                          ({Math.round(r.frazione * 100)}% anno)
+                        </span>
+                      )}
                     </td>
                     <td className="num">{euro(r.previstoInarcassa, true)}</td>
                     <td className="num">{euro(r.pagatoInarcassa, true)}</td>
@@ -538,6 +653,18 @@ export function Tasse() {
                     </td>
                     <td className="num">
                       {euro(r.pagatoTotale - r.previstoTotale, true)}
+                    </td>
+                    <td className="num">{euro(r.dovutoTotale, true)}</td>
+                    <td
+                      className="num"
+                      style={{
+                        color:
+                          r.daVersareTotale > 0.01
+                            ? "var(--uscita)"
+                            : "var(--entrata)",
+                      }}
+                    >
+                      <b>{euro(r.daVersareTotale, true)}</b>
                     </td>
                   </tr>
                 ))}
@@ -568,6 +695,18 @@ export function Tasse() {
                       totaliGenerali.pagatoTotale - totaliGenerali.previstoTotale,
                       true,
                     )}
+                  </th>
+                  <th className="num">{euro(totaliGenerali.dovutoTotale, true)}</th>
+                  <th
+                    className="num"
+                    style={{
+                      color:
+                        totaliGenerali.daVersareTotale > 0.01
+                          ? "var(--uscita)"
+                          : "var(--entrata)",
+                    }}
+                  >
+                    {euro(totaliGenerali.daVersareTotale, true)}
                   </th>
                 </tr>
               </tfoot>
