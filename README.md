@@ -108,6 +108,7 @@ src/
     AppStore.tsx      stato globale React
   engine/
     analisi.ts        analisi spese per categoria/mese/anno (logica SUMIFS)
+    fatture.ts        calcolo forfettario + Inarcassa dalle fatture (fonte delle tasse per anno)
   auth/Gate.tsx       barriera con codice di accesso
   engine/
     saldo.ts          saldo giornaliero: grezzo, netto tasse, potere d'acquisto
@@ -115,10 +116,28 @@ src/
     Movimenti.tsx     import CSV, tabella, filtri, trasferimenti, prompt Claude
     AnalisiSpese.tsx  tabella + grafico spese (con range temporale)
     Saldo.tsx         saldo reale: grezzo, netto tasse, patrimonio totale
-    Tasse.tsx         dati fiscali per anno (editabili)
+    Fatture.tsx       elenco fatture per anno (reali/stimate) + analisi complessiva
+    Tasse.tsx         dati fiscali per anno (ereditati dalle fatture, o editabili)
     Proiezione.tsx    (Fasi 4-5) proiezione futura
     Impostazioni.tsx  parametri, categorie, password, backup
 ```
+
+## Fatture e tasse
+
+La scheda **Fatture** sostituisce i fogli annuali "ELENCO FATTURE" dell'Excel:
+per ogni anno c'è una sezione richiudibile (dalla più recente) con l'elenco
+delle fatture, ognuna marcabile come **reale** (emessa) o **stimata**
+(previsionale). Dalle fatture si calcola il quadro forfettario dell'anno —
+imponibile (coeff. ATECO 78%), imposta sostitutiva (15%) e Inarcassa
+(soggettivo 7,25%/14,5% + integrativo 4% + maternità) — e in cima la
+**Analisi complessiva**: fatturato, tasse e netto mensile (su 12 e 13) anno per
+anno.
+
+Fatturato, Inarcassa e imposta così calcolati **alimentano automaticamente** la
+scheda **Tasse** (celle in grigio, non più da digitare a mano) e, di
+conseguenza, il saldo netto-tasse, la proiezione e l'analisi spese. La
+"Verifica pagamenti" della scheda Tasse continua a confrontare questi importi
+previsti con quelli davvero pagati (movimenti con flag *tasse*).
 
 ## Roadmap
 
@@ -128,6 +147,9 @@ src/
 - [x] **Fase 4-5** — Proiezione futura, investimenti, dashboard pensione.
 - [x] **OneDrive** — login Microsoft + salvataggio/caricamento backup e
       salvataggio automatico (opzionale, gratuito, client-side via MSAL).
+- [x] **Fatture** — elenco fatture per anno (reali/stimate), calcolo
+      forfettario + Inarcassa e analisi complessiva; le tasse per anno vengono
+      calcolate da qui e riusate nelle schede esistenti.
 
 ## Privacy
 

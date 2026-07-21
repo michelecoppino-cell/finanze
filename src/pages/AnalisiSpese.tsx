@@ -12,6 +12,7 @@ import {
 import { useApp } from "../store/AppStore";
 import { analizza, perAnno, RigaMese } from "../engine/analisi";
 import { tasseStimatePeriodo } from "../engine/tasse";
+import { tasseConFatture } from "../engine/fatture";
 import { euro, labelMese, annoMese, ultimoGiornoMese } from "../util";
 import { Info } from "../components/Info";
 
@@ -130,11 +131,11 @@ export function AnalisiSpese() {
   const tasseStimate = useMemo(() => {
     if (!meseIniziale || !meseFinale) return 0;
     return tasseStimatePeriodo(
-      dati.tasse,
+      tasseConFatture(dati.tasse, dati.fatture),
       `${meseIniziale}-01`,
       ultimoGiornoMese(meseFinale),
     );
-  }, [dati.tasse, meseIniziale, meseFinale]);
+  }, [dati.tasse, dati.fatture, meseIniziale, meseFinale]);
 
   const entrateNette = analisi.totaleEntrate - tasseStimate;
 
