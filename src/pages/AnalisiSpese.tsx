@@ -151,23 +151,30 @@ export function AnalisiSpese() {
 
   // Preset di range comodi.
   const annoCorrente = new Date().getFullYear();
-  function preset(nome: "tutto" | "annoCorrente" | "ultimi12" | "annoScorso") {
+  function preset(nome: "tutto" | "ultimi12") {
     if (nome === "tutto") {
       setDa("");
       setA("");
-    } else if (nome === "annoCorrente") {
-      setDa(`${annoCorrente}-01`);
-      setA(`${annoCorrente}-12`);
-    } else if (nome === "annoScorso") {
-      setDa(`${annoCorrente - 1}-01`);
-      setA(`${annoCorrente - 1}-12`);
-    } else if (nome === "ultimi12") {
+    } else {
       const d = new Date();
       d.setMonth(d.getMonth() - 11);
       setDa(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
       setA(`${annoCorrente}-${String(new Date().getMonth() + 1).padStart(2, "0")}`);
     }
   }
+
+  function presetAnno(anno: number) {
+    setDa(`${anno}-01`);
+    setA(`${anno}-12`);
+  }
+
+  // Tutti gli anni con almeno un movimento, dal piu' recente al piu' vecchio:
+  // un bottone per ognuno, non solo l'anno corrente e quello precedente.
+  const anniDisponibili = useMemo(() => {
+    const s = new Set<number>();
+    for (const m of mesi) s.add(Number(m.slice(0, 4)));
+    return [...s].sort((a, b) => b - a);
+  }, [mesi]);
 
   const rangeAttivo = !!(da || a);
 
@@ -176,19 +183,22 @@ export function AnalisiSpese() {
       <div className="card">
         <div className="riga-azioni" style={{ justifyContent: "space-between" }}>
           <h3 style={{ margin: 0 }}>Periodo analizzato</h3>
-          <div className="riga-azioni" style={{ gap: 6 }}>
+          <div className="riga-azioni" style={{ gap: 6, flexWrap: "wrap" }}>
             <button className="secondario" onClick={() => preset("tutto")}>
               Tutto
             </button>
             <button className="secondario" onClick={() => preset("ultimi12")}>
               Ultimi 12 mesi
             </button>
-            <button className="secondario" onClick={() => preset("annoCorrente")}>
-              {annoCorrente}
-            </button>
-            <button className="secondario" onClick={() => preset("annoScorso")}>
-              {annoCorrente - 1}
-            </button>
+            {anniDisponibili.map((anno) => (
+              <button
+                key={anno}
+                className="secondario"
+                onClick={() => presetAnno(anno)}
+              >
+                {anno}
+              </button>
+            ))}
           </div>
         </div>
         <div className="riga-azioni" style={{ marginTop: 10 }}>
@@ -308,6 +318,19 @@ export function AnalisiSpese() {
           <div className="valore uscita">
             {euro(analisi.totaleUscite / nMesi)}
           </div>
+        </div>
+        <div className="stat">
+          <div className="etichetta">
+            Entrata mensile media
+            <Info>
+              Entrate nette di tasse stimate del periodo, divise per i mesi
+              coperti dal periodo.
+              <br />
+              {euro(entrateNette, true)} / {nMesi} {nMesi === 1 ? "mese" : "mesi"}{" "}
+              = <b>{euro(entrateNette / nMesi, true)}</b>
+            </Info>
+          </div>
+          <div className="valore entrata">{euro(entrateNette / nMesi)}</div>
         </div>
         {(tasseStimate > 0 || analisi.totaleTasse > 0) && (
           <div className="stat">
