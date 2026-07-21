@@ -3,6 +3,7 @@ import { useApp } from "../store/AppStore";
 import { AllocazioneTasse, AnnoTasse, Transazione } from "../types";
 import { euro } from "../util";
 import { Info } from "../components/Info";
+import { Pannello } from "../components/Pannello";
 
 /** Totale tasse dichiarato per l'anno: importi reali se presenti, altrimenti stima da fatturato x aliquota. */
 function stimaAnno(t: AnnoTasse): number {
@@ -121,9 +122,16 @@ export function Tasse() {
       // Per l'anno in corso le tasse maturano giorno per giorno: a oggi si
       // deve solo la quota-parte dei giorni gia' trascorsi, non l'intera stima annua.
       const frazione = frazioneTrascorsa(anno, oggi);
-      const dovutoInarcassa = previstoInarcassa * frazione;
-      const dovutoImposta = previstoImposta * frazione;
-      const dovutoTotale = previstoTotale * frazione;
+      const inarcassaChiuso = dich?.inarcassaChiuso ?? false;
+      const impostaChiuso = dich?.impostaChiuso ?? false;
+      // "Chiuso" congela il residuo a zero: l'anno e' considerato saldato a
+      // prescindere da quanto darebbe il calcolo grezzo (dovuto - pagato).
+      const daVersareInarcassa = inarcassaChiuso
+        ? 0
+        : previstoInarcassa * frazione - pag.inarcassa;
+      const daVersareImposta = impostaChiuso
+        ? 0
+        : previstoImposta * frazione - pag.imposta;
       return {
         anno,
         previstoInarcassa,
@@ -133,12 +141,12 @@ export function Tasse() {
         previstoTotale,
         pagatoTotale,
         frazione,
-        dovutoInarcassa,
-        dovutoImposta,
-        dovutoTotale,
-        daVersareInarcassa: dovutoInarcassa - pag.inarcassa,
-        daVersareImposta: dovutoImposta - pag.imposta,
-        daVersareTotale: dovutoTotale - pagatoTotale,
+        inarcassaChiuso,
+        impostaChiuso,
+        daVersareInarcassa,
+        daVersareImposta,
+        daVersareTotale: daVersareInarcassa + daVersareImposta,
+        note: dich?.note ?? "",
       };
     });
   }, [righe, pagatoPerAnno, oggi]);
@@ -153,9 +161,6 @@ export function Tasse() {
           pagatoImposta: acc.pagatoImposta + r.pagatoImposta,
           previstoTotale: acc.previstoTotale + r.previstoTotale,
           pagatoTotale: acc.pagatoTotale + r.pagatoTotale,
-          dovutoInarcassa: acc.dovutoInarcassa + r.dovutoInarcassa,
-          dovutoImposta: acc.dovutoImposta + r.dovutoImposta,
-          dovutoTotale: acc.dovutoTotale + r.dovutoTotale,
           daVersareInarcassa: acc.daVersareInarcassa + r.daVersareInarcassa,
           daVersareImposta: acc.daVersareImposta + r.daVersareImposta,
           daVersareTotale: acc.daVersareTotale + r.daVersareTotale,
@@ -167,9 +172,6 @@ export function Tasse() {
           pagatoImposta: 0,
           previstoTotale: 0,
           pagatoTotale: 0,
-          dovutoInarcassa: 0,
-          dovutoImposta: 0,
-          dovutoTotale: 0,
           daVersareInarcassa: 0,
           daVersareImposta: 0,
           daVersareTotale: 0,
@@ -179,6 +181,7 @@ export function Tasse() {
   );
 
   const daCompletare = movimentiTasse.filter((t) => {
+    if (t.tasseCompletato) return false;
     const allocato = allocazioneDi(t).reduce(
       (s, a) => s + (a.inarcassa ?? 0) + (a.imposta ?? 0),
       0,
@@ -187,10 +190,15 @@ export function Tasse() {
   }).length;
 
   function modifica(anno: number, patch: Partial<AnnoTasse>) {
-    aggiorna((d) => ({
-      ...d,
-      tasse: d.tasse.map((t) => (t.anno === anno ? { ...t, ...patch } : t)),
-    }));
+    aggiorna((d) => {
+      const esiste = d.tasse.some((t) => t.anno === anno);
+      return {
+        ...d,
+        tasse: esiste
+          ? d.tasse.map((t) => (t.anno === anno ? { ...t, ...patch } : t))
+          : [...d.tasse, { anno, ...patch }],
+      };
+    });
   }
 
   function aggiungiAnno() {
@@ -286,10 +294,6 @@ export function Tasse() {
           giorno-per-giorno per correggere il saldo (colonne "netto tasse" e
           "potere d'acquisto" della pagina Saldo). Puoi lasciare i valori reali
           (Inarcassa + IRPEF) oppure la stima da fatturato × aliquota.
-          Se per un anno non hai le transazioni/pagamenti reali (es. anni
-          ricostruiti), spunta <b>"Escludi dal saldo"</b>: altrimenti le tasse
-          maturate di quell'anno vengono sottratte per sempre senza che nessun
-          pagamento le compensi.
         </p>
       </div>
 
@@ -305,15 +309,6 @@ export function Tasse() {
               <th className="num">Aliquota</th>
               <th className="num">Totale tasse</th>
               <th className="num">Al giorno</th>
-              <th>
-                Escludi dal saldo
-                <Info>
-                  Se spuntato, questo anno non viene sottratto nel calcolo del
-                  saldo reale (pagina Saldo). Utile per anni ricostruiti senza
-                  le vere transazioni/pagamenti tasse: altrimenti l'importo
-                  maturato resta un buco mai compensato da un pagamento reale.
-                </Info>
-              </th>
               <th></th>
             </tr>
           </thead>
@@ -361,15 +356,6 @@ export function Tasse() {
                     <b>{euro(stima, true)}</b>
                   </td>
                   <td className="num">{euro(stima / 365, true)}</td>
-                  <td style={{ textAlign: "center" }}>
-                    <input
-                      type="checkbox"
-                      checked={t.escludiDalSaldo ?? false}
-                      onChange={(e) =>
-                        modifica(t.anno, { escludiDalSaldo: e.target.checked || undefined })
-                      }
-                    />
-                  </td>
                   <td>
                     <button
                       className="secondario"
@@ -393,27 +379,29 @@ export function Tasse() {
       </div>
 
       {movimentiTasse.length > 0 && (
-        <div className="card" style={{ marginTop: 24 }}>
-          <div className="riga-azioni" style={{ justifyContent: "space-between" }}>
-            <h3 style={{ margin: 0 }}>
-              Verifica pagamenti
-              <Info>
-                Tutti i movimenti con la spunta <b>Tasse</b> (pagina
-                Movimenti). Per ognuno indica quanto va a <b>Inarcassa</b> e
-                quanto a <b>Imposta</b> (IRPEF/imposta sostitutiva) e l'anno
-                di competenza. Un versamento spesso copre il saldo dell'anno
-                precedente + l'acconto di quello in corso: usa{" "}
-                <b>"+ anno"</b> per dividerlo su due (o più) anni.
-                <br />
-                <br />I totali "Pagato" della tabella sotto si costruiscono
-                da questa ripartizione e si confrontano con "Inarcassa €" e
-                "IRPEF €" dichiarati nella tabella in cima alla pagina.
-              </Info>
-            </h3>
-            {daCompletare > 0 && (
+        <Pannello
+          titolo="Verifica pagamenti"
+          extra={
+            daCompletare > 0 ? (
               <span className="chip">{daCompletare} da completare</span>
-            )}
-          </div>
+            ) : undefined
+          }
+        >
+          <p className="muted" style={{ marginTop: 0 }}>
+            Tutti i movimenti con la spunta <b>Tasse</b> (pagina Movimenti).
+            Per ognuno indica quanto va a <b>Inarcassa</b> e quanto a{" "}
+            <b>Imposta</b> (IRPEF/imposta sostitutiva) e l'anno di competenza.
+            Un versamento spesso copre il saldo dell'anno precedente +
+            l'acconto di quello in corso: usa <b>"+ anno"</b> per dividerlo
+            su due (o più) anni. Quando una riga è a posto, spunta{" "}
+            <b>Completato</b>: non è più modificabile per sbaglio e un
+            eventuale residuo non allocato (es. un extra richiesto dal
+            circuito di pagamento) non conta più come errore.
+            <br />
+            <br />I totali "Pagato" della tabella sotto si costruiscono da
+            questa ripartizione e si confrontano con "Inarcassa €" e "IRPEF €"
+            dichiarati nella tabella in cima alla pagina.
+          </p>
           <div className="tabella-wrap">
             <table>
               <thead>
@@ -432,6 +420,14 @@ export function Tasse() {
                       completamente ripartito.
                     </Info>
                   </th>
+                  <th style={{ textAlign: "center" }}>
+                    Completato
+                    <Info>
+                      Blocca la riga (non più modificabile per sbaglio) ed
+                      esclude il movimento dal conteggio "da completare",
+                      anche se resta un residuo non allocato.
+                    </Info>
+                  </th>
                   <th></th>
                 </tr>
               </thead>
@@ -443,6 +439,7 @@ export function Tasse() {
                     0,
                   );
                   const residuo = round2((t.uscite ?? 0) - allocato);
+                  const completato = t.tasseCompletato ?? false;
                   return alloc.map((a, i) => (
                     <tr key={t.id + "-" + i}>
                       {i === 0 && (
@@ -467,6 +464,7 @@ export function Tasse() {
                           type="number"
                           style={{ width: 68 }}
                           value={a.anno}
+                          disabled={completato}
                           onChange={(e) =>
                             aggiornaRigaAlloc(t, i, {
                               anno: Number(e.target.value) || a.anno,
@@ -480,6 +478,7 @@ export function Tasse() {
                           step="0.01"
                           style={{ width: 90 }}
                           value={a.inarcassa ?? ""}
+                          disabled={completato}
                           onChange={(e) =>
                             aggiornaRigaAlloc(t, i, {
                               inarcassa:
@@ -496,6 +495,7 @@ export function Tasse() {
                           step="0.01"
                           style={{ width: 90 }}
                           value={a.imposta ?? ""}
+                          disabled={completato}
                           onChange={(e) =>
                             aggiornaRigaAlloc(t, i, {
                               imposta:
@@ -508,11 +508,24 @@ export function Tasse() {
                       </td>
                       {i === 0 && (
                         <td rowSpan={alloc.length} className="num">
-                          {Math.abs(residuo) > 0.01 ? (
-                            <span className="muted">{euro(residuo, true)}</span>
-                          ) : (
+                          {completato || Math.abs(residuo) <= 0.01 ? (
                             "✓"
+                          ) : (
+                            <span className="muted">{euro(residuo, true)}</span>
                           )}
+                        </td>
+                      )}
+                      {i === 0 && (
+                        <td rowSpan={alloc.length} style={{ textAlign: "center" }}>
+                          <input
+                            type="checkbox"
+                            checked={completato}
+                            onChange={(e) =>
+                              modificaTransazione(t.id, {
+                                tasseCompletato: e.target.checked || undefined,
+                              })
+                            }
+                          />
                         </td>
                       )}
                       <td>
@@ -521,6 +534,7 @@ export function Tasse() {
                             <button
                               className="secondario"
                               style={{ padding: "2px 6px" }}
+                              disabled={completato}
                               onClick={() => rimuoviRigaAlloc(t, i)}
                             >
                               ✕
@@ -531,6 +545,7 @@ export function Tasse() {
                               className="secondario"
                               style={{ padding: "2px 6px" }}
                               title="Dividi questo pagamento su un altro anno"
+                              disabled={completato}
                               onClick={() => aggiungiRigaAlloc(t)}
                             >
                               + anno
@@ -544,7 +559,7 @@ export function Tasse() {
               </tbody>
             </table>
           </div>
-        </div>
+        </Pannello>
       )}
 
       {confrontoAnni.length > 0 && (
@@ -556,15 +571,16 @@ export function Tasse() {
               <div className="etichetta">
                 Manca da pagare a oggi
                 <Info>
-                  Somma, su tutti gli anni, di "Dovuto a oggi" meno "Pagato".
-                  Per gli anni chiusi il dovuto è l'intero importo dichiarato;
-                  per l'anno in corso ({oggi.getFullYear()}) è solo la
-                  quota-parte dei giorni già trascorsi (
+                  Somma, su tutti gli anni, del "Da versare" di Inarcassa e
+                  Imposta. Per gli anni passati si conta l'intero importo
+                  dichiarato; per l'anno in corso ({oggi.getFullYear()}) solo
+                  la quota-parte dei giorni già trascorsi (
                   {Math.round(
                     (confrontoAnni.find((r) => r.anno === oggi.getFullYear())
                       ?.frazione ?? 0) * 100,
                   )}
-                  % dell'anno).
+                  % dell'anno). Gli anni segnati come "Chiuso" non vengono
+                  conteggiati.
                   <br />
                   <br />
                   Inarcassa: {euro(totaliGenerali.daVersareInarcassa, true)}
@@ -595,30 +611,36 @@ export function Tasse() {
             <table>
               <thead>
                 <tr>
-                  <th>Anno</th>
-                  <th className="num">Inarcassa previsto</th>
-                  <th className="num">Inarcassa pagato</th>
-                  <th className="num">Δ</th>
-                  <th className="num">Imposta previsto</th>
-                  <th className="num">Imposta pagato</th>
-                  <th className="num">Δ</th>
-                  <th className="num">Totale previsto</th>
-                  <th className="num">Totale pagato</th>
-                  <th className="num">Δ</th>
-                  <th className="num">
-                    Dovuto a oggi
-                    <Info>
-                      Quota del totale previsto maturata fino a oggi: intera
-                      per gli anni chiusi, proporzionale ai giorni trascorsi
-                      per l'anno in corso.
-                    </Info>
+                  <th rowSpan={2}>Anno</th>
+                  <th colSpan={4} style={{ textAlign: "center" }}>
+                    Inarcassa
                   </th>
+                  <th colSpan={4} style={{ textAlign: "center" }}>
+                    Imposta
+                  </th>
+                  <th colSpan={3} style={{ textAlign: "center" }}>
+                    Totale
+                  </th>
+                  <th rowSpan={2}>Note</th>
+                </tr>
+                <tr>
+                  <th className="num">Previsto</th>
+                  <th className="num">Pagato</th>
+                  <th className="num">Da versare</th>
+                  <th style={{ textAlign: "center" }}>Chiuso</th>
+                  <th className="num">Previsto</th>
+                  <th className="num">Pagato</th>
+                  <th className="num">Da versare</th>
+                  <th style={{ textAlign: "center" }}>Chiuso</th>
+                  <th className="num">Previsto</th>
+                  <th className="num">Pagato</th>
                   <th className="num">
                     Da versare
                     <Info>
-                      Dovuto a oggi meno pagato. Positivo = manca ancora
-                      questo importo; negativo = pagato più di quanto
-                      maturato finora.
+                      Quota maturata a oggi meno il pagato: intera per gli
+                      anni passati, proporzionale ai giorni trascorsi per
+                      l'anno in corso. Se "Chiuso" è spuntato (Inarcassa e/o
+                      Imposta), quella parte non viene più conteggiata.
                     </Info>
                   </th>
                 </tr>
@@ -637,13 +659,51 @@ export function Tasse() {
                     </td>
                     <td className="num">{euro(r.previstoInarcassa, true)}</td>
                     <td className="num">{euro(r.pagatoInarcassa, true)}</td>
-                    <td className="num">
-                      {euro(r.pagatoInarcassa - r.previstoInarcassa, true)}
+                    <td
+                      className="num"
+                      style={{
+                        color:
+                          r.daVersareInarcassa > 0.01
+                            ? "var(--uscita)"
+                            : "var(--entrata)",
+                      }}
+                    >
+                      {euro(r.daVersareInarcassa, true)}
+                    </td>
+                    <td style={{ textAlign: "center" }}>
+                      <input
+                        type="checkbox"
+                        checked={r.inarcassaChiuso}
+                        onChange={(e) =>
+                          modifica(r.anno, {
+                            inarcassaChiuso: e.target.checked || undefined,
+                          })
+                        }
+                      />
                     </td>
                     <td className="num">{euro(r.previstoImposta, true)}</td>
                     <td className="num">{euro(r.pagatoImposta, true)}</td>
-                    <td className="num">
-                      {euro(r.pagatoImposta - r.previstoImposta, true)}
+                    <td
+                      className="num"
+                      style={{
+                        color:
+                          r.daVersareImposta > 0.01
+                            ? "var(--uscita)"
+                            : "var(--entrata)",
+                      }}
+                    >
+                      {euro(r.daVersareImposta, true)}
+                    </td>
+                    <td style={{ textAlign: "center" }}>
+                      <input
+                        type="checkbox"
+                        checked={r.impostaChiuso}
+                        onChange={(e) =>
+                          modifica(r.anno, {
+                            impostaChiuso: e.target.checked || undefined,
+                          })
+                        }
+                      />
                     </td>
                     <td className="num">
                       <b>{euro(r.previstoTotale, true)}</b>
@@ -651,10 +711,6 @@ export function Tasse() {
                     <td className="num">
                       <b>{euro(r.pagatoTotale, true)}</b>
                     </td>
-                    <td className="num">
-                      {euro(r.pagatoTotale - r.previstoTotale, true)}
-                    </td>
-                    <td className="num">{euro(r.dovutoTotale, true)}</td>
                     <td
                       className="num"
                       style={{
@@ -666,6 +722,16 @@ export function Tasse() {
                     >
                       <b>{euro(r.daVersareTotale, true)}</b>
                     </td>
+                    <td>
+                      <input
+                        type="text"
+                        style={{ width: 140 }}
+                        value={r.note}
+                        onChange={(e) =>
+                          modifica(r.anno, { note: e.target.value || undefined })
+                        }
+                      />
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -674,29 +740,34 @@ export function Tasse() {
                   <th>Totale</th>
                   <th className="num">{euro(totaliGenerali.previstoInarcassa, true)}</th>
                   <th className="num">{euro(totaliGenerali.pagatoInarcassa, true)}</th>
-                  <th className="num">
-                    {euro(
-                      totaliGenerali.pagatoInarcassa - totaliGenerali.previstoInarcassa,
-                      true,
-                    )}
+                  <th
+                    className="num"
+                    style={{
+                      color:
+                        totaliGenerali.daVersareInarcassa > 0.01
+                          ? "var(--uscita)"
+                          : "var(--entrata)",
+                    }}
+                  >
+                    {euro(totaliGenerali.daVersareInarcassa, true)}
                   </th>
+                  <th></th>
                   <th className="num">{euro(totaliGenerali.previstoImposta, true)}</th>
                   <th className="num">{euro(totaliGenerali.pagatoImposta, true)}</th>
-                  <th className="num">
-                    {euro(
-                      totaliGenerali.pagatoImposta - totaliGenerali.previstoImposta,
-                      true,
-                    )}
+                  <th
+                    className="num"
+                    style={{
+                      color:
+                        totaliGenerali.daVersareImposta > 0.01
+                          ? "var(--uscita)"
+                          : "var(--entrata)",
+                    }}
+                  >
+                    {euro(totaliGenerali.daVersareImposta, true)}
                   </th>
+                  <th></th>
                   <th className="num">{euro(totaliGenerali.previstoTotale, true)}</th>
                   <th className="num">{euro(totaliGenerali.pagatoTotale, true)}</th>
-                  <th className="num">
-                    {euro(
-                      totaliGenerali.pagatoTotale - totaliGenerali.previstoTotale,
-                      true,
-                    )}
-                  </th>
-                  <th className="num">{euro(totaliGenerali.dovutoTotale, true)}</th>
                   <th
                     className="num"
                     style={{
@@ -708,6 +779,7 @@ export function Tasse() {
                   >
                     {euro(totaliGenerali.daVersareTotale, true)}
                   </th>
+                  <th></th>
                 </tr>
               </tfoot>
             </table>

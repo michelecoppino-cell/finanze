@@ -55,6 +55,14 @@ export interface Transazione {
    * tasse per anno.
    */
   allocazioneTasse?: AllocazioneTasse[];
+  /**
+   * Solo per movimenti con flag "tasse": ripartizione confermata e non più da
+   * ricontrollare. Blocca la riga in "Verifica pagamenti" (non più
+   * modificabile per sbaglio) e la esclude dal conteggio "da completare"
+   * anche se resta un residuo non allocato (es. un piccolo extra dovuto al
+   * circuito di pagamento scelto).
+   */
+  tasseCompletato?: boolean;
 }
 
 /** Quota di un pagamento tasse imputata a un anno (foglio "Transazioni", verifica pagamenti). */
@@ -91,6 +99,15 @@ export interface AnnoTasse {
    * pagamento reale.
    */
   escludiDalSaldo?: boolean;
+  /**
+   * Anno chiuso per Inarcassa/Imposta: se spuntato, l'importo di quella voce
+   * non viene più conteggiato in "Da versare" nella tabella "Previsto vs
+   * pagato" (né nei totali), anche se il calcolo grezzo darebbe un residuo.
+   */
+  inarcassaChiuso?: boolean;
+  impostaChiuso?: boolean;
+  /** Nota libera per l'anno (tabella "Previsto vs pagato"). */
+  note?: string;
 }
 
 /** Evento della proiezione futura (foglio "SpeseEntrateFuturi"). */
