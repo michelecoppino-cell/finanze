@@ -297,6 +297,11 @@ th {
      menu del filtro colonna resterebbe coperto quando entrambe sono "incollate". */
   z-index: 6;
 }
+/* Intestazioni su due righe (gruppi di colonne): la seconda riga si aggancia
+   sotto la prima invece di sovrapporvisi. */
+thead tr:nth-child(2) th {
+  top: 33px;
+}
 td.num,
 th.num {
   text-align: right;
@@ -460,6 +465,13 @@ table input {
 .pannello-sotto {
   font-weight: 400;
   font-size: 12px;
+}
+.pannello-titolo-riga {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: 1;
+  gap: 8px;
 }
 .pannello-corpo {
   margin-top: 10px;
