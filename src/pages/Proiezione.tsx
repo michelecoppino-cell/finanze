@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from "react";
+import { useMemo } from "react";
 import {
   AreaChart,
   Area,
@@ -15,42 +15,12 @@ import { EventoFuturo, Investimento } from "../types";
 import { calcolaProiezione, campionaMesi } from "../engine/proiezione";
 import { euro, uid } from "../util";
 import { Info } from "../components/Info";
+import { Pannello } from "../components/Pannello";
 
 const COL_LIQ = "#4c78a8"; // liquido
 const COL_CAP = "#8a94a6"; // capitale investito
 const COL_GAIN = "#54a24b"; // guadagni
 const COL_IMM = "#b279a2"; // equity immobiliare (mutui)
-
-/**
- * Card richiudibile con tendina: usata per gli editor di scenari e
- * investimenti, che di default restano chiusi per non ingombrare la vista.
- */
-function Pannello({
-  titolo,
-  sottotitolo,
-  apertoDefault = false,
-  children,
-}: {
-  titolo: string;
-  sottotitolo?: string;
-  apertoDefault?: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <details className="card pannello" open={apertoDefault}>
-      <summary>
-        <span className="pannello-freccia" aria-hidden="true">
-          ▸
-        </span>
-        <span>
-          {titolo}
-          {sottotitolo && <span className="muted pannello-sotto"> {sottotitolo}</span>}
-        </span>
-      </summary>
-      <div className="pannello-corpo">{children}</div>
-    </details>
-  );
-}
 
 export function Proiezione() {
   const { dati, aggiorna } = useApp();
