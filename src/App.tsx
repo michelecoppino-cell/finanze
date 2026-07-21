@@ -90,11 +90,11 @@ type Pagina =
   | "impostazioni";
 
 const VOCI: { id: Pagina; nome: string; icona: string }[] = [
-  { id: "movimenti", nome: "Movimenti", icona: "≡" },
-  { id: "analisi", nome: "Analisi spese", icona: "▤" },
   { id: "saldo", nome: "Saldo reale", icona: "◈" },
-  { id: "tasse", nome: "Tasse", icona: "%" },
+  { id: "analisi", nome: "Analisi spese", icona: "▤" },
   { id: "proiezione", nome: "Proiezione", icona: "◹" },
+  { id: "tasse", nome: "Tasse", icona: "%" },
+  { id: "movimenti", nome: "Movimenti", icona: "≡" },
   { id: "impostazioni", nome: "Impostazioni", icona: "⚙" },
 ];
 
@@ -122,7 +122,7 @@ function BannerSync() {
 }
 
 export function App() {
-  const [pagina, setPagina] = useState<Pagina>("movimenti");
+  const [pagina, setPagina] = useState<Pagina>("saldo");
   const [menuAperto, setMenuAperto] = useState(false);
 
   return (
