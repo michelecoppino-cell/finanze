@@ -93,6 +93,14 @@ export interface AnnoTasse {
   fatturato?: number; // J - fatturato dell'anno
   tassazione?: number; // K - aliquota (decimale, es. 0.1865)
   /**
+   * Inarcassa in regime ridotto per quest'anno: il contributo soggettivo è al
+   * 7,25% invece del 14,5% (i primi anni di attività o sotto soglia). Se
+   * l'anno ha delle fatture, questo flag guida il calcolo del contributo.
+   */
+  inarcassaRidotta?: boolean;
+  /** Contributo maternità Inarcassa dell'anno (default 72€), usato dal calcolo da fatture. */
+  maternita?: number;
+  /**
    * Esclude l'anno dal calcolo del saldo reale (Saldo!maturate): utile per
    * anni ricostruiti senza le vere transazioni/pagamenti tasse, dove
    * sottrarre l'importo maturato creerebbe un buco mai compensato da un
@@ -108,6 +116,52 @@ export interface AnnoTasse {
   impostaChiuso?: boolean;
   /** Nota libera per l'anno (tabella "Previsto vs pagato"). */
   note?: string;
+}
+
+/**
+ * Una fattura emessa (o stimata) in regime forfettario, con contabilità
+ * Inarcassa. Ricalca una riga dell'"ELENCO FATTURE" dei fogli annuali
+ * dell'Excel. Il netto può essere digitato a mano oppure calcolato dalle
+ * giornate lavorate × prezzo giornaliero.
+ */
+export interface Fattura {
+  id: string;
+  /** Anno di competenza (la "scheda" a cui appartiene). */
+  anno: number;
+  /** Numero progressivo della fattura (libero, anche testo). */
+  numero?: string;
+  /** Data di emissione (ISO yyyy-mm-dd). */
+  dataEmissione: string;
+  /** Cliente/destinatario. */
+  destinatario?: string;
+  /**
+   * Fattura solo stimata/previsionale (non ancora realmente emessa). Serve a
+   * proiettare il totale dell'anno pur distinguendo il già-fatturato dal
+   * previsto. Assente/false = realmente emessa.
+   */
+  stimata?: boolean;
+  /** Imponibile netto della prestazione (colonna "Netto"). */
+  netto?: number;
+  /** IVA (di norma 0 nel forfettario). */
+  iva?: number;
+  /**
+   * Marca da bollo. Se assente vale 2€ quando il netto supera 77,47€, 0
+   * altrimenti (soglia di legge).
+   */
+  bollo?: number;
+  /** Prestazione verso l'estero: niente contributo integrativo Inarcassa 4%. */
+  estero?: boolean;
+  note?: string;
+  /**
+   * Se true il netto è calcolato dalle giornate: netto = (giorni − ferie +
+   * extra + spostati) × prezzoGiorno. Replica le colonne M/N/O/P/Q dell'Excel.
+   */
+  daGiornate?: boolean;
+  giorni?: number; // giorni lavorativi del mese
+  ferie?: number; // ferie / malattia
+  extra?: number; // giorni extra (weekend, ecc.)
+  spostati?: number; // giorni spostati dal mese precedente
+  prezzoGiorno?: number; // tariffa giornaliera
 }
 
 /** Evento della proiezione futura (foglio "SpeseEntrateFuturi"). */
@@ -199,6 +253,8 @@ export interface DatiApp {
   transazioni: Transazione[];
   categorie: Categoria[];
   tasse: AnnoTasse[];
+  /** Fatture emesse/stimate (regime forfettario). Alimentano fatturato e tasse per anno. */
+  fatture?: Fattura[];
   eventiFuturi: EventoFuturo[];
   investimenti: Investimento[];
   /** Mutui/immobili (equity conteggiata nel patrimonio). */
@@ -282,6 +338,7 @@ export function datiVuoti(): DatiApp {
     transazioni: [],
     categorie: CATEGORIE_DEFAULT,
     tasse: [],
+    fatture: [],
     eventiFuturi: [],
     investimenti: [],
     mutui: [],

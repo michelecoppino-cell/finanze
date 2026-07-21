@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useApp } from "../store/AppStore";
 import { AllocazioneTasse, AnnoTasse, Transazione } from "../types";
+import { tasseConFatture, annoHaFatture } from "../engine/fatture";
 import { euro } from "../util";
 import { Info } from "../components/Info";
 import { Pannello } from "../components/Pannello";
@@ -50,7 +51,12 @@ function frazioneTrascorsa(anno: number, oggi: Date): number {
 
 export function Tasse() {
   const { dati, aggiorna } = useApp();
-  const righe = [...dati.tasse].sort((a, b) => a.anno - b.anno);
+  // Dove ci sono fatture (scheda Fatture), inarcassa/imposta/fatturato dell'anno
+  // sono calcolati da lì: unica fonte, nessuna doppia digitazione.
+  const righe = useMemo(
+    () => tasseConFatture(dati.tasse, dati.fatture).sort((a, b) => a.anno - b.anno),
+    [dati.tasse, dati.fatture],
+  );
 
   // ---------- Verifica pagamenti: allocazione dei movimenti "tasse" ----------
   // Ogni movimento con flag "tasse" (pagina Movimenti) puo' essere ripartito
@@ -293,7 +299,10 @@ export function Tasse() {
           Forfettario + Inarcassa. Il totale annuo viene spalmato
           giorno-per-giorno per correggere il saldo (colonne "netto tasse" e
           "potere d'acquisto" della pagina Saldo). Puoi lasciare i valori reali
-          (Inarcassa + IRPEF) oppure la stima da fatturato × aliquota.
+          (Inarcassa + IRPEF) oppure la stima da fatturato × aliquota. Gli anni
+          con delle fatture registrate nella scheda <b>Fatture</b> hanno
+          Inarcassa, IRPEF e fatturato calcolati da lì (celle in grigio, non
+          modificabili qui): li cambi aggiungendo o correggendo le fatture.
         </p>
       </div>
 
@@ -315,27 +324,49 @@ export function Tasse() {
           <tbody>
             {righe.map((t) => {
               const stima = stimaAnno(t);
+              const daFatture = annoHaFatture(t.anno, dati.fatture);
               return (
                 <tr key={t.anno}>
                   <td>
                     <b>{t.anno}</b>
+                    {daFatture && (
+                      <span
+                        className="muted"
+                        style={{ fontSize: 11, display: "block" }}
+                        title="Calcolato dalle fatture"
+                      >
+                        da Fatture
+                      </span>
+                    )}
                   </td>
-                  <CellaNum
-                    valore={t.inarcassa}
-                    onSet={(v) => modifica(t.anno, { inarcassa: v })}
-                  />
-                  <CellaNum
-                    valore={t.irpef}
-                    onSet={(v) => modifica(t.anno, { irpef: v })}
-                  />
+                  {daFatture ? (
+                    <CellaCalcolata valore={t.inarcassa} />
+                  ) : (
+                    <CellaNum
+                      valore={t.inarcassa}
+                      onSet={(v) => modifica(t.anno, { inarcassa: v })}
+                    />
+                  )}
+                  {daFatture ? (
+                    <CellaCalcolata valore={t.irpef} />
+                  ) : (
+                    <CellaNum
+                      valore={t.irpef}
+                      onSet={(v) => modifica(t.anno, { irpef: v })}
+                    />
+                  )}
                   <CellaNum
                     valore={t.aggiuntivi}
                     onSet={(v) => modifica(t.anno, { aggiuntivi: v })}
                   />
-                  <CellaNum
-                    valore={t.fatturato}
-                    onSet={(v) => modifica(t.anno, { fatturato: v })}
-                  />
+                  {daFatture ? (
+                    <CellaCalcolata valore={t.fatturato} />
+                  ) : (
+                    <CellaNum
+                      valore={t.fatturato}
+                      onSet={(v) => modifica(t.anno, { fatturato: v })}
+                    />
+                  )}
                   <td className="num">
                     <input
                       type="number"
@@ -357,13 +388,15 @@ export function Tasse() {
                   </td>
                   <td className="num">{euro(stima / 365, true)}</td>
                   <td>
-                    <button
-                      className="secondario"
-                      style={{ padding: "2px 8px" }}
-                      onClick={() => elimina(t.anno)}
-                    >
-                      ✕
-                    </button>
+                    {!daFatture && (
+                      <button
+                        className="secondario"
+                        style={{ padding: "2px 8px" }}
+                        onClick={() => elimina(t.anno)}
+                      >
+                        ✕
+                      </button>
+                    )}
                   </td>
                 </tr>
               );
@@ -787,6 +820,15 @@ export function Tasse() {
         </div>
       )}
     </>
+  );
+}
+
+/** Cella in sola lettura: valore calcolato dalle fatture, non modificabile qui. */
+function CellaCalcolata({ valore }: { valore: number | undefined }) {
+  return (
+    <td className="num" title="Calcolato dalle fatture">
+      <b>{euro(valore, true)}</b>
+    </td>
   );
 }
 

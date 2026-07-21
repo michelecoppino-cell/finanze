@@ -13,6 +13,7 @@ import {
 import { useApp } from "../store/AppStore";
 import { EventoFuturo, Investimento } from "../types";
 import { calcolaProiezione, campionaMesi } from "../engine/proiezione";
+import { tasseConFatture } from "../engine/fatture";
 import { euro, uid } from "../util";
 import { Info } from "../components/Info";
 import { Pannello } from "../components/Pannello";
@@ -30,7 +31,7 @@ export function Proiezione() {
     () =>
       calcolaProiezione(
         dati.transazioni,
-        dati.tasse,
+        tasseConFatture(dati.tasse, dati.fatture),
         dati.eventiFuturi,
         dati.investimenti,
         dati.parametri,

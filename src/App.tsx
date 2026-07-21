@@ -6,6 +6,7 @@ import { Movimenti } from "./pages/Movimenti";
 import { AnalisiSpese } from "./pages/AnalisiSpese";
 import { Saldo } from "./pages/Saldo";
 import { Tasse } from "./pages/Tasse";
+import { Fatture } from "./pages/Fatture";
 import { Proiezione } from "./pages/Proiezione";
 import { Impostazioni } from "./pages/Impostazioni";
 import { useApp } from "./store/AppStore";
@@ -86,6 +87,7 @@ type Pagina =
   | "analisi"
   | "saldo"
   | "tasse"
+  | "fatture"
   | "proiezione"
   | "impostazioni";
 
@@ -93,6 +95,7 @@ const VOCI: { id: Pagina; nome: string; icona: string }[] = [
   { id: "saldo", nome: "Saldo reale", icona: "◈" },
   { id: "analisi", nome: "Analisi spese", icona: "▤" },
   { id: "proiezione", nome: "Proiezione", icona: "◹" },
+  { id: "fatture", nome: "Fatture", icona: "🧾" },
   { id: "tasse", nome: "Tasse", icona: "%" },
   { id: "movimenti", nome: "Movimenti", icona: "≡" },
   { id: "impostazioni", nome: "Impostazioni", icona: "⚙" },
@@ -173,6 +176,7 @@ export function App() {
           {pagina === "movimenti" && <Movimenti />}
           {pagina === "analisi" && <AnalisiSpese />}
           {pagina === "saldo" && <Saldo />}
+          {pagina === "fatture" && <Fatture />}
           {pagina === "tasse" && <Tasse />}
           {pagina === "proiezione" && <Proiezione />}
           {pagina === "impostazioni" && <Impostazioni />}
