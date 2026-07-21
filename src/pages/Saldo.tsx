@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import {
-  LineChart,
-  Line,
+  AreaChart,
+  Area,
   XAxis,
   YAxis,
   Tooltip,
@@ -21,17 +21,22 @@ const COLORI = {
   totale: "#54a24b",
 };
 
-const NOME_SALDO_TOTALE = "Saldo totale";
+/** Opacita' di riempimento delle aree: leggera, cosi' dove si sovrappongono
+ * si intuisce comunque quale sta "sopra" (v. ordine di disegno nel grafico). */
+const OPACITA_AREA = 0.28;
+
+const NOME_SALDO_TOTALE = "Liquidità totale netta";
 const NOME_SALDO_GREZZO = "Saldo grezzo";
-const NOME_SALDO_COMPRENSIVO = "Saldo con ETF e immobile";
+const NOME_SALDO_COMPRENSIVO = "Patrimonio";
 
 export function Saldo() {
   const { dati } = useApp();
   const [da, setDa] = useState("");
   const [a, setA] = useState("");
   const [nascoste, setNascoste] = useState<Set<string>>(new Set());
-  const [mostraGrezzo, setMostraGrezzo] = useState(true);
-  const [mostraComprensivo, setMostraComprensivo] = useState(false);
+  const [mostraGrezzo, setMostraGrezzo] = useState(false);
+  const [mostraComprensivo, setMostraComprensivo] = useState(true);
+  const [mostraConti, setMostraConti] = useState(false);
 
   const ris = useMemo(
     () => calcolaSaldo(dati.transazioni, dati.tasse, dati.parametri),
@@ -317,12 +322,17 @@ export function Saldo() {
         </div>
         <p className="muted" style={{ marginTop: -4 }}>
           <b>{NOME_SALDO_TOTALE}</b>: saldo netto tasse su tutti i conti — i
-          soldi davvero tuoi, con le tasse (forfettario + Inarcassa)
-          accantonate giorno-per-giorno.
+          soldi davvero tuoi e subito disponibili, con le tasse (forfettario +
+          Inarcassa) accantonate giorno-per-giorno.{" "}
+          <b>{NOME_SALDO_COMPRENSIVO}</b>: {NOME_SALDO_TOTALE.toLowerCase()} +
+          quanto investito (giroconti/ETF) + equity immobiliare (mutui) — il
+          valore complessivo di quanto possiedi. Dove le due curve
+          coincidono (nessun investimento nel periodo) vedi solo{" "}
+          {NOME_SALDO_TOTALE}, disegnata sopra.
           {conti.length > 0 && (
             <>
               {" "}
-              <b>Saldo per conto</b>: andamento grezzo (senza tasse) del
+              <b>Saldi per conto</b>: andamento grezzo (senza tasse) di ogni
               singolo conto.
             </>
           )}{" "}
@@ -345,10 +355,20 @@ export function Saldo() {
             />
             <span>{NOME_SALDO_GREZZO}</span>
           </label>
+          {conti.length > 0 && (
+            <label className="filtro-campo" style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <input
+                type="checkbox"
+                checked={mostraConti}
+                onChange={(e) => setMostraConti(e.target.checked)}
+              />
+              <span>Saldi per conto</span>
+            </label>
+          )}
         </div>
         <div style={{ width: "100%", height: 360 }}>
           <ResponsiveContainer>
-            <LineChart
+            <AreaChart
               data={datiGrafico}
               margin={{ top: 8, right: 12, left: 8, bottom: 8 }}
             >
@@ -386,51 +406,64 @@ export function Saldo() {
                   </span>
                 )}
               />
-              <Line
-                type="monotone"
-                dataKey="nettoTasse"
-                name={NOME_SALDO_TOTALE}
-                stroke={COLORI.nettoTasse}
-                hide={nascoste.has(NOME_SALDO_TOTALE)}
-                dot={false}
-                strokeWidth={2}
-              />
-              {conti.map((c) => {
-                const nome = `Saldo ${c}`;
-                return (
-                  <Line
-                    key={c}
-                    type="monotone"
-                    dataKey={(p: PuntoSaldo & { comprensivo: number }) => p.perConto[c]}
-                    name={nome}
-                    stroke={coloreConto[c]}
-                    hide={nascoste.has(nome)}
-                    dot={false}
-                    strokeWidth={1.5}
-                  />
-                );
-              })}
-              {mostraComprensivo && (
-                <Line
-                  type="monotone"
-                  dataKey="comprensivo"
-                  name={NOME_SALDO_COMPRENSIVO}
-                  stroke={COLORI.totale}
-                  dot={false}
-                  strokeWidth={2}
-                />
-              )}
+              {/* Ordine di disegno: le aree successive coprono le precedenti
+                  dove si sovrappongono. "Liquidità totale netta" va per
+                  ultima cosi' resta davanti al Patrimonio quando coincidono
+                  (nessun investito nel periodo). */}
+              {mostraConti &&
+                conti.map((c) => {
+                  const nome = `Saldo ${c}`;
+                  return (
+                    <Area
+                      key={c}
+                      type="monotone"
+                      dataKey={(p: PuntoSaldo & { comprensivo: number }) => p.perConto[c]}
+                      name={nome}
+                      stroke={coloreConto[c]}
+                      fill={coloreConto[c]}
+                      fillOpacity={OPACITA_AREA}
+                      hide={nascoste.has(nome)}
+                      dot={false}
+                      strokeWidth={1.5}
+                    />
+                  );
+                })}
               {mostraGrezzo && (
-                <Line
+                <Area
                   type="monotone"
                   dataKey="grezzo"
                   name={NOME_SALDO_GREZZO}
                   stroke={COLORI.grezzo}
+                  fill={COLORI.grezzo}
+                  fillOpacity={OPACITA_AREA}
                   dot={false}
                   strokeWidth={1.5}
                 />
               )}
-            </LineChart>
+              {mostraComprensivo && (
+                <Area
+                  type="monotone"
+                  dataKey="comprensivo"
+                  name={NOME_SALDO_COMPRENSIVO}
+                  stroke={COLORI.totale}
+                  fill={COLORI.totale}
+                  fillOpacity={OPACITA_AREA}
+                  dot={false}
+                  strokeWidth={2}
+                />
+              )}
+              <Area
+                type="monotone"
+                dataKey="nettoTasse"
+                name={NOME_SALDO_TOTALE}
+                stroke={COLORI.nettoTasse}
+                fill={COLORI.nettoTasse}
+                fillOpacity={OPACITA_AREA}
+                hide={nascoste.has(NOME_SALDO_TOTALE)}
+                dot={false}
+                strokeWidth={2}
+              />
+            </AreaChart>
           </ResponsiveContainer>
         </div>
       </div>
