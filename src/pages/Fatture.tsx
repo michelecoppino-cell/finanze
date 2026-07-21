@@ -9,6 +9,7 @@ import { AnnoTasse, Fattura } from "../types";
 import {
   calcolaAnno,
   anniConFatture,
+  analisiComplessiva,
   nettoFattura,
   bolloFattura,
   integrativoFattura,
@@ -18,6 +19,9 @@ import {
 import { euro, uid } from "../util";
 import { Info } from "../components/Info";
 import { Pannello } from "../components/Pannello";
+
+/** Colore per i valori reali presi da un anno "chiuso" (distinti dalle stime). */
+const COLORE_CHIUSO = "#b279a2";
 
 export function Fatture() {
   const { dati, aggiorna } = useApp();
@@ -86,6 +90,35 @@ export function Fatture() {
     });
   }
 
+  // Cambia l'anno di un record AnnoTasse manuale (anno senza fatture).
+  function rinominaAnnoManuale(vecchio: number, nuovo: number) {
+    if (!nuovo || nuovo === vecchio) return;
+    aggiorna((d) => ({
+      ...d,
+      tasse: d.tasse.map((t) => (t.anno === vecchio ? { ...t, anno: nuovo } : t)),
+    }));
+  }
+
+  function eliminaAnnoManuale(anno: number) {
+    aggiorna((d) => ({ ...d, tasse: d.tasse.filter((t) => t.anno !== anno) }));
+  }
+
+  function aggiungiAnnoManuale() {
+    // Propone l'anno mancante più vicino (di solito uno prima del più vecchio).
+    const esistenti = new Set([
+      ...anni,
+      ...dati.tasse.map((t) => t.anno),
+    ]);
+    let nuovo = anni.length ? Math.min(...anni) - 1 : new Date().getFullYear();
+    while (esistenti.has(nuovo)) nuovo -= 1;
+    aggiorna((d) => ({ ...d, tasse: [...d.tasse, { anno: nuovo }] }));
+  }
+
+  const analisi = useMemo(
+    () => analisiComplessiva(dati.tasse, fatture),
+    [dati.tasse, fatture],
+  );
+
   const numOr = (v: number | undefined) => (v === undefined ? "" : v);
 
   if (fatture.length === 0) {
@@ -113,8 +146,13 @@ export function Fatture() {
         <h3>Analisi complessiva</h3>
         <p className="muted" style={{ marginTop: -4 }}>
           Riepilogo del lavoro anno per anno: fatturato, tasse e — soprattutto —
-          quanto resta netto al mese. Il netto mensile è il netto totale
-          dell'anno diviso 12 (o 13, per confronto con un dipendente).
+          quanto resta netto al mese. Il <b>netto/mese</b> è (netto in tasca +
+          entrate extra non tassate − spese) diviso 12 (o 13, per confronto con
+          un dipendente). Puoi aggiungere anni interamente <b>manuali</b> (es.
+          2020) e compilarli a mano. Per gli anni con fatture, Inarcassa e
+          imposta sono stimate; se marchi l'anno come <b>chiuso</b> nella scheda
+          Tasse, qui compare invece il valore reale (in{" "}
+          <span style={{ color: COLORE_CHIUSO, fontWeight: 600 }}>colore</span>).
         </p>
         <div className="tabella-wrap">
           <table>
@@ -122,59 +160,124 @@ export function Fatture() {
               <tr>
                 <th>Anno</th>
                 <th className="num">Fatturato</th>
-                <th className="num">
-                  di cui stimato
-                  <Info>
-                    Parte del fatturato che arriva da fatture marcate come
-                    "stimata" (non ancora realmente emesse). Il resto è già
-                    fatturato davvero.
-                  </Info>
-                </th>
-                <th className="num">Imponibile</th>
                 <th className="num">Inarcassa</th>
                 <th className="num">Imposta</th>
-                <th className="num">Netto totale</th>
                 <th className="num">
-                  Aliq. media
+                  Entrate extra
                   <Info>
-                    (imposta + contributo soggettivo + maternità) / fatturato.
-                    Il contributo integrativo 4% non è incluso perché viene
-                    riaddebitato al cliente, non è una tua tassa.
+                    Entrate dell'anno NON soggette a tasse (rimborsi, lavoretti
+                    occasionali…): non toccano il calcolo fiscale ma si sommano
+                    al netto/mese.
                   </Info>
                 </th>
+                <th className="num">
+                  Spese
+                  <Info>
+                    Spese dell'anno da sottrarre dal netto/mese (es. costi
+                    professionali non deducibili nel forfettario).
+                  </Info>
+                </th>
+                <th className="num">Netto totale</th>
                 <th className="num">Netto/mese 12</th>
                 <th className="num">Netto/mese 13</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
-              {[...calcoli]
-                .sort((a, b) => a.anno - b.anno)
-                .map((c) => (
-                  <tr key={c.anno}>
-                    <td>
-                      <b>{c.anno}</b>
-                    </td>
-                    <td className="num">{euro(c.fatturato, true)}</td>
+              {analisi.map((r) => (
+                <tr key={r.anno}>
+                  <td>
+                    {r.haFatture ? (
+                      <b>{r.anno}</b>
+                    ) : (
+                      <input
+                        type="number"
+                        style={{ width: 64 }}
+                        value={r.anno}
+                        title="Anno manuale: puoi cambiarlo"
+                        onChange={(e) =>
+                          rinominaAnnoManuale(r.anno, Number(e.target.value) || r.anno)
+                        }
+                      />
+                    )}
+                  </td>
+                  {/* Fatturato: calcolato se ci sono fatture, altrimenti a mano */}
+                  {r.haFatture ? (
                     <td className="num">
-                      {c.fatturatoStimato > 0 ? (
-                        <span className="muted">{euro(c.fatturatoStimato, true)}</span>
-                      ) : (
-                        "—"
+                      {euro(r.fatturato, true)}
+                      {r.fatturatoStimato > 0 && (
+                        <span
+                          className="muted"
+                          style={{ display: "block", fontSize: 11 }}
+                          title="Parte da fatture stimate"
+                        >
+                          di cui stim. {euro(r.fatturatoStimato)}
+                        </span>
                       )}
                     </td>
-                    <td className="num">{euro(c.imponibile, true)}</td>
-                    <td className="num">{euro(c.inarcassa, true)}</td>
-                    <td className="num">{euro(c.imposta, true)}</td>
+                  ) : (
+                    <CellaEuroEdit
+                      valore={cfgAnno(r.anno)?.fatturato}
+                      onSet={(v) => modificaConfigAnno(r.anno, { fatturato: v })}
+                    />
+                  )}
+                  {/* Inarcassa */}
+                  {r.haFatture ? (
                     <td className="num">
-                      <b>{euro(c.nettoTotale, true)}</b>
+                      <ValoreStima valore={r.inarcassa} chiuso={r.inarcassaDaChiuso} voce="Inarcassa" />
                     </td>
-                    <td className="num">{(c.aliquotaMedia * 100).toFixed(1)}%</td>
-                    <td className="num">{euro(c.nettoMensile12)}</td>
-                    <td className="num">{euro(c.nettoMensile13)}</td>
-                  </tr>
-                ))}
+                  ) : (
+                    <CellaEuroEdit
+                      valore={cfgAnno(r.anno)?.inarcassa}
+                      onSet={(v) => modificaConfigAnno(r.anno, { inarcassa: v })}
+                    />
+                  )}
+                  {/* Imposta */}
+                  {r.haFatture ? (
+                    <td className="num">
+                      <ValoreStima valore={r.imposta} chiuso={r.impostaDaChiuso} voce="imposta" />
+                    </td>
+                  ) : (
+                    <CellaEuroEdit
+                      valore={cfgAnno(r.anno)?.irpef}
+                      onSet={(v) => modificaConfigAnno(r.anno, { irpef: v })}
+                    />
+                  )}
+                  {/* Entrate extra / Spese: sempre editabili */}
+                  <CellaEuroEdit
+                    valore={cfgAnno(r.anno)?.entrateExtra}
+                    onSet={(v) => modificaConfigAnno(r.anno, { entrateExtra: v })}
+                  />
+                  <CellaEuroEdit
+                    valore={cfgAnno(r.anno)?.spese}
+                    onSet={(v) => modificaConfigAnno(r.anno, { spese: v })}
+                  />
+                  <td className="num">
+                    <b>{euro(r.nettoInTasca, true)}</b>
+                  </td>
+                  <td className="num">{euro(r.nettoMensile12)}</td>
+                  <td className="num">{euro(r.nettoMensile13)}</td>
+                  <td>
+                    {!r.haFatture && (
+                      <button
+                        className="secondario"
+                        style={{ padding: "2px 8px" }}
+                        title="Rimuovi questo anno manuale/ipotetico"
+                        onClick={() => eliminaAnnoManuale(r.anno)}
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
+        </div>
+        <div style={{ marginTop: 10 }}>
+          <button className="secondario" onClick={aggiungiAnnoManuale}>
+            + Aggiungi anno manuale
+          </button>
         </div>
       </div>
 
@@ -512,6 +615,52 @@ function RigaFattura({
         </tr>
       )}
     </>
+  );
+}
+
+/** Cella con importo €, editabile (usata per gli anni manuali ed extra/spese). */
+function CellaEuroEdit({
+  valore,
+  onSet,
+}: {
+  valore: number | undefined;
+  onSet: (v: number | undefined) => void;
+}) {
+  return (
+    <td className="num">
+      <input
+        type="number"
+        step="0.01"
+        style={{ width: 92 }}
+        value={valore === undefined ? "" : valore}
+        onChange={(e) => onSet(e.target.value === "" ? undefined : Number(e.target.value))}
+      />
+    </td>
+  );
+}
+
+/**
+ * Mostra un valore fiscale stimato dalle fatture; se proviene da un anno
+ * "chiuso" (valore reale dichiarato in Tasse) lo colora e spiega il perché al
+ * passaggio del mouse.
+ */
+function ValoreStima({
+  valore,
+  chiuso,
+  voce,
+}: {
+  valore: number;
+  chiuso: boolean;
+  voce: string;
+}) {
+  if (!chiuso) return <>{euro(valore, true)}</>;
+  return (
+    <b
+      style={{ color: COLORE_CHIUSO }}
+      title={`Valore reale di ${voce}: l'anno è segnato "chiuso" nella scheda Tasse, quindi qui si usa l'importo davvero dichiarato invece della stima calcolata dalle fatture.`}
+    >
+      {euro(valore, true)}
+    </b>
   );
 }
 

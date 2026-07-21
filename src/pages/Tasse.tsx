@@ -293,311 +293,6 @@ export function Tasse() {
         </div>
       )}
 
-      <div className="card">
-        <h3>Dati fiscali per anno</h3>
-        <p className="muted" style={{ marginTop: -4 }}>
-          Forfettario + Inarcassa. Il totale annuo viene spalmato
-          giorno-per-giorno per correggere il saldo (colonne "netto tasse" e
-          "potere d'acquisto" della pagina Saldo). Puoi lasciare i valori reali
-          (Inarcassa + IRPEF) oppure la stima da fatturato × aliquota. Per gli
-          anni con fatture nella scheda <b>Fatture</b>, i campi che qui lasci
-          <b> vuoti</b> vengono riempiti dal calcolo delle fatture (celle in
-          grigio); i valori reali che scrivi a mano hanno sempre la
-          precedenza e non vengono mai sovrascritti.
-        </p>
-      </div>
-
-      <div className="tabella-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Anno</th>
-              <th className="num">Inarcassa €</th>
-              <th className="num">IRPEF €</th>
-              <th className="num">Aggiuntivi €</th>
-              <th className="num">Fatturato €</th>
-              <th className="num">Aliquota</th>
-              <th className="num">Totale tasse</th>
-              <th className="num">Al giorno</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {righe.map((t) => {
-              const stima = stimaAnno(t);
-              const haFatture = annoHaFatture(t.anno, dati.fatture);
-              const raw = dati.tasse.find((x) => x.anno === t.anno);
-              const derivato = campiDaFatture(raw, t.anno, dati.fatture);
-              return (
-                <tr key={t.anno}>
-                  <td>
-                    <b>{t.anno}</b>
-                    {haFatture && (
-                      <span
-                        className="muted"
-                        style={{ fontSize: 11, display: "block" }}
-                        title="Ha delle fatture registrate"
-                      >
-                        con fatture
-                      </span>
-                    )}
-                  </td>
-                  {derivato.inarcassa ? (
-                    <CellaCalcolata valore={t.inarcassa} />
-                  ) : (
-                    <CellaNum
-                      valore={t.inarcassa}
-                      onSet={(v) => modifica(t.anno, { inarcassa: v })}
-                    />
-                  )}
-                  {derivato.irpef ? (
-                    <CellaCalcolata valore={t.irpef} />
-                  ) : (
-                    <CellaNum
-                      valore={t.irpef}
-                      onSet={(v) => modifica(t.anno, { irpef: v })}
-                    />
-                  )}
-                  <CellaNum
-                    valore={t.aggiuntivi}
-                    onSet={(v) => modifica(t.anno, { aggiuntivi: v })}
-                  />
-                  {derivato.fatturato ? (
-                    <CellaCalcolata valore={t.fatturato} />
-                  ) : (
-                    <CellaNum
-                      valore={t.fatturato}
-                      onSet={(v) => modifica(t.anno, { fatturato: v })}
-                    />
-                  )}
-                  <td className="num">
-                    <input
-                      type="number"
-                      step="0.001"
-                      style={{ width: 70 }}
-                      value={numOr(t.tassazione)}
-                      onChange={(e) =>
-                        modifica(t.anno, {
-                          tassazione:
-                            e.target.value === ""
-                              ? undefined
-                              : Number(e.target.value),
-                        })
-                      }
-                    />
-                  </td>
-                  <td className="num">
-                    <b>{euro(stima, true)}</b>
-                  </td>
-                  <td className="num">{euro(stima / 365, true)}</td>
-                  <td>
-                    {!haFatture && (
-                      <button
-                        className="secondario"
-                        style={{ padding: "2px 8px" }}
-                        onClick={() => elimina(t.anno)}
-                      >
-                        ✕
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-
-      <div style={{ marginTop: 12 }}>
-        <button className="secondario" onClick={aggiungiAnno}>
-          + Aggiungi anno
-        </button>
-      </div>
-
-      {movimentiTasse.length > 0 && (
-        <Pannello
-          titolo="Verifica pagamenti"
-          extra={
-            daCompletare > 0 ? (
-              <span className="chip">{daCompletare} da completare</span>
-            ) : undefined
-          }
-        >
-          <p className="muted" style={{ marginTop: 0 }}>
-            Tutti i movimenti con la spunta <b>Tasse</b> (pagina Movimenti).
-            Per ognuno indica quanto va a <b>Inarcassa</b> e quanto a{" "}
-            <b>Imposta</b> (IRPEF/imposta sostitutiva) e l'anno di competenza.
-            Un versamento spesso copre il saldo dell'anno precedente +
-            l'acconto di quello in corso: usa <b>"+ anno"</b> per dividerlo
-            su due (o più) anni. Quando una riga è a posto, spunta{" "}
-            <b>Completato</b>: non è più modificabile per sbaglio e un
-            eventuale residuo non allocato (es. un extra richiesto dal
-            circuito di pagamento) non conta più come errore.
-            <br />
-            <br />I totali "Pagato" della tabella sotto si costruiscono da
-            questa ripartizione e si confrontano con "Inarcassa €" e "IRPEF €"
-            dichiarati nella tabella in cima alla pagina.
-          </p>
-          <div className="tabella-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Data</th>
-                  <th>Causale</th>
-                  <th className="num">Importo</th>
-                  <th className="num">Anno</th>
-                  <th className="num">Inarcassa €</th>
-                  <th className="num">Imposta €</th>
-                  <th className="num">
-                    Da allocare
-                    <Info>
-                      Parte dell'importo del movimento non ancora assegnata a
-                      Inarcassa o Imposta. Quando torna a zero, il movimento è
-                      completamente ripartito.
-                    </Info>
-                  </th>
-                  <th style={{ textAlign: "center" }}>
-                    Completato
-                    <Info>
-                      Blocca la riga (non più modificabile per sbaglio) ed
-                      esclude il movimento dal conteggio "da completare",
-                      anche se resta un residuo non allocato.
-                    </Info>
-                  </th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {movimentiTasse.flatMap((t) => {
-                  const alloc = allocazioneDi(t);
-                  const allocato = alloc.reduce(
-                    (s, a) => s + (a.inarcassa ?? 0) + (a.imposta ?? 0),
-                    0,
-                  );
-                  const residuo = round2((t.uscite ?? 0) - allocato);
-                  const completato = t.tasseCompletato ?? false;
-                  return alloc.map((a, i) => (
-                    <tr key={t.id + "-" + i}>
-                      {i === 0 && (
-                        <>
-                          <td rowSpan={alloc.length}>{t.data}</td>
-                          <td
-                            rowSpan={alloc.length}
-                            title={t.causale}
-                            className="cella-causale"
-                          >
-                            {(t.causale ?? "").slice(0, 46) || (
-                              <span className="muted">{t.tipologia}</span>
-                            )}
-                          </td>
-                          <td rowSpan={alloc.length} className="num">
-                            {euro(t.uscite, true)}
-                          </td>
-                        </>
-                      )}
-                      <td className="num">
-                        <input
-                          type="number"
-                          style={{ width: 68 }}
-                          value={a.anno}
-                          disabled={completato}
-                          onChange={(e) =>
-                            aggiornaRigaAlloc(t, i, {
-                              anno: Number(e.target.value) || a.anno,
-                            })
-                          }
-                        />
-                      </td>
-                      <td className="num">
-                        <input
-                          type="number"
-                          step="0.01"
-                          style={{ width: 90 }}
-                          value={a.inarcassa ?? ""}
-                          disabled={completato}
-                          onChange={(e) =>
-                            aggiornaRigaAlloc(t, i, {
-                              inarcassa:
-                                e.target.value === ""
-                                  ? undefined
-                                  : Number(e.target.value),
-                            })
-                          }
-                        />
-                      </td>
-                      <td className="num">
-                        <input
-                          type="number"
-                          step="0.01"
-                          style={{ width: 90 }}
-                          value={a.imposta ?? ""}
-                          disabled={completato}
-                          onChange={(e) =>
-                            aggiornaRigaAlloc(t, i, {
-                              imposta:
-                                e.target.value === ""
-                                  ? undefined
-                                  : Number(e.target.value),
-                            })
-                          }
-                        />
-                      </td>
-                      {i === 0 && (
-                        <td rowSpan={alloc.length} className="num">
-                          {completato || Math.abs(residuo) <= 0.01 ? (
-                            "✓"
-                          ) : (
-                            <span className="muted">{euro(residuo, true)}</span>
-                          )}
-                        </td>
-                      )}
-                      {i === 0 && (
-                        <td rowSpan={alloc.length} style={{ textAlign: "center" }}>
-                          <input
-                            type="checkbox"
-                            checked={completato}
-                            onChange={(e) =>
-                              modificaTransazione(t.id, {
-                                tasseCompletato: e.target.checked || undefined,
-                              })
-                            }
-                          />
-                        </td>
-                      )}
-                      <td>
-                        <span className="riga-azioni" style={{ gap: 4 }}>
-                          {alloc.length > 1 && (
-                            <button
-                              className="secondario"
-                              style={{ padding: "2px 6px" }}
-                              disabled={completato}
-                              onClick={() => rimuoviRigaAlloc(t, i)}
-                            >
-                              ✕
-                            </button>
-                          )}
-                          {i === alloc.length - 1 && (
-                            <button
-                              className="secondario"
-                              style={{ padding: "2px 6px" }}
-                              title="Dividi questo pagamento su un altro anno"
-                              disabled={completato}
-                              onClick={() => aggiungiRigaAlloc(t)}
-                            >
-                              + anno
-                            </button>
-                          )}
-                        </span>
-                      </td>
-                    </tr>
-                  ));
-                })}
-              </tbody>
-            </table>
-          </div>
-        </Pannello>
-      )}
-
       {confrontoAnni.length > 0 && (
         <div className="card" style={{ marginTop: 16 }}>
           <h3>Previsto vs pagato, per anno</h3>
@@ -822,6 +517,312 @@ export function Tasse() {
           </div>
         </div>
       )}
+
+      {movimentiTasse.length > 0 && (
+        <Pannello
+          titolo="Verifica pagamenti"
+          extra={
+            daCompletare > 0 ? (
+              <span className="chip">{daCompletare} da completare</span>
+            ) : undefined
+          }
+        >
+          <p className="muted" style={{ marginTop: 0 }}>
+            Tutti i movimenti con la spunta <b>Tasse</b> (pagina Movimenti).
+            Per ognuno indica quanto va a <b>Inarcassa</b> e quanto a{" "}
+            <b>Imposta</b> (IRPEF/imposta sostitutiva) e l'anno di competenza.
+            Un versamento spesso copre il saldo dell'anno precedente +
+            l'acconto di quello in corso: usa <b>"+ anno"</b> per dividerlo
+            su due (o più) anni. Quando una riga è a posto, spunta{" "}
+            <b>Completato</b>: non è più modificabile per sbaglio e un
+            eventuale residuo non allocato (es. un extra richiesto dal
+            circuito di pagamento) non conta più come errore.
+            <br />
+            <br />I totali "Pagato" della tabella sotto si costruiscono da
+            questa ripartizione e si confrontano con "Inarcassa €" e "IRPEF €"
+            dichiarati nella tabella in cima alla pagina.
+          </p>
+          <div className="tabella-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Data</th>
+                  <th>Causale</th>
+                  <th className="num">Importo</th>
+                  <th className="num">Anno</th>
+                  <th className="num">Inarcassa €</th>
+                  <th className="num">Imposta €</th>
+                  <th className="num">
+                    Da allocare
+                    <Info>
+                      Parte dell'importo del movimento non ancora assegnata a
+                      Inarcassa o Imposta. Quando torna a zero, il movimento è
+                      completamente ripartito.
+                    </Info>
+                  </th>
+                  <th style={{ textAlign: "center" }}>
+                    Completato
+                    <Info>
+                      Blocca la riga (non più modificabile per sbaglio) ed
+                      esclude il movimento dal conteggio "da completare",
+                      anche se resta un residuo non allocato.
+                    </Info>
+                  </th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {movimentiTasse.flatMap((t) => {
+                  const alloc = allocazioneDi(t);
+                  const allocato = alloc.reduce(
+                    (s, a) => s + (a.inarcassa ?? 0) + (a.imposta ?? 0),
+                    0,
+                  );
+                  const residuo = round2((t.uscite ?? 0) - allocato);
+                  const completato = t.tasseCompletato ?? false;
+                  return alloc.map((a, i) => (
+                    <tr key={t.id + "-" + i}>
+                      {i === 0 && (
+                        <>
+                          <td rowSpan={alloc.length}>{t.data}</td>
+                          <td
+                            rowSpan={alloc.length}
+                            title={t.causale}
+                            className="cella-causale"
+                          >
+                            {(t.causale ?? "").slice(0, 46) || (
+                              <span className="muted">{t.tipologia}</span>
+                            )}
+                          </td>
+                          <td rowSpan={alloc.length} className="num">
+                            {euro(t.uscite, true)}
+                          </td>
+                        </>
+                      )}
+                      <td className="num">
+                        <input
+                          type="number"
+                          style={{ width: 68 }}
+                          value={a.anno}
+                          disabled={completato}
+                          onChange={(e) =>
+                            aggiornaRigaAlloc(t, i, {
+                              anno: Number(e.target.value) || a.anno,
+                            })
+                          }
+                        />
+                      </td>
+                      <td className="num">
+                        <input
+                          type="number"
+                          step="0.01"
+                          style={{ width: 90 }}
+                          value={a.inarcassa ?? ""}
+                          disabled={completato}
+                          onChange={(e) =>
+                            aggiornaRigaAlloc(t, i, {
+                              inarcassa:
+                                e.target.value === ""
+                                  ? undefined
+                                  : Number(e.target.value),
+                            })
+                          }
+                        />
+                      </td>
+                      <td className="num">
+                        <input
+                          type="number"
+                          step="0.01"
+                          style={{ width: 90 }}
+                          value={a.imposta ?? ""}
+                          disabled={completato}
+                          onChange={(e) =>
+                            aggiornaRigaAlloc(t, i, {
+                              imposta:
+                                e.target.value === ""
+                                  ? undefined
+                                  : Number(e.target.value),
+                            })
+                          }
+                        />
+                      </td>
+                      {i === 0 && (
+                        <td rowSpan={alloc.length} className="num">
+                          {completato || Math.abs(residuo) <= 0.01 ? (
+                            "✓"
+                          ) : (
+                            <span className="muted">{euro(residuo, true)}</span>
+                          )}
+                        </td>
+                      )}
+                      {i === 0 && (
+                        <td rowSpan={alloc.length} style={{ textAlign: "center" }}>
+                          <input
+                            type="checkbox"
+                            checked={completato}
+                            onChange={(e) =>
+                              modificaTransazione(t.id, {
+                                tasseCompletato: e.target.checked || undefined,
+                              })
+                            }
+                          />
+                        </td>
+                      )}
+                      <td>
+                        <span className="riga-azioni" style={{ gap: 4 }}>
+                          {alloc.length > 1 && (
+                            <button
+                              className="secondario"
+                              style={{ padding: "2px 6px" }}
+                              disabled={completato}
+                              onClick={() => rimuoviRigaAlloc(t, i)}
+                            >
+                              ✕
+                            </button>
+                          )}
+                          {i === alloc.length - 1 && (
+                            <button
+                              className="secondario"
+                              style={{ padding: "2px 6px" }}
+                              title="Dividi questo pagamento su un altro anno"
+                              disabled={completato}
+                              onClick={() => aggiungiRigaAlloc(t)}
+                            >
+                              + anno
+                            </button>
+                          )}
+                        </span>
+                      </td>
+                    </tr>
+                  ));
+                })}
+              </tbody>
+            </table>
+          </div>
+        </Pannello>
+      )}
+
+      <div className="card">
+        <h3>Dati fiscali per anno</h3>
+        <p className="muted" style={{ marginTop: -4 }}>
+          Forfettario + Inarcassa. Il totale annuo viene spalmato
+          giorno-per-giorno per correggere il saldo (colonne "netto tasse" e
+          "potere d'acquisto" della pagina Saldo). Puoi lasciare i valori reali
+          (Inarcassa + IRPEF) oppure la stima da fatturato × aliquota. Per gli
+          anni con fatture nella scheda <b>Fatture</b>, i campi che qui lasci
+          <b> vuoti</b> vengono riempiti dal calcolo delle fatture (celle in
+          grigio); i valori reali che scrivi a mano hanno sempre la
+          precedenza e non vengono mai sovrascritti.
+        </p>
+      </div>
+
+      <div className="tabella-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Anno</th>
+              <th className="num">Inarcassa €</th>
+              <th className="num">IRPEF €</th>
+              <th className="num">Aggiuntivi €</th>
+              <th className="num">Fatturato €</th>
+              <th className="num">Aliquota</th>
+              <th className="num">Totale tasse</th>
+              <th className="num">Al giorno</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {righe.map((t) => {
+              const stima = stimaAnno(t);
+              const haFatture = annoHaFatture(t.anno, dati.fatture);
+              const raw = dati.tasse.find((x) => x.anno === t.anno);
+              const derivato = campiDaFatture(raw, t.anno, dati.fatture);
+              return (
+                <tr key={t.anno}>
+                  <td>
+                    <b>{t.anno}</b>
+                    {haFatture && (
+                      <span
+                        className="muted"
+                        style={{ fontSize: 11, display: "block" }}
+                        title="Ha delle fatture registrate"
+                      >
+                        con fatture
+                      </span>
+                    )}
+                  </td>
+                  {derivato.inarcassa ? (
+                    <CellaCalcolata valore={t.inarcassa} />
+                  ) : (
+                    <CellaNum
+                      valore={t.inarcassa}
+                      onSet={(v) => modifica(t.anno, { inarcassa: v })}
+                    />
+                  )}
+                  {derivato.irpef ? (
+                    <CellaCalcolata valore={t.irpef} />
+                  ) : (
+                    <CellaNum
+                      valore={t.irpef}
+                      onSet={(v) => modifica(t.anno, { irpef: v })}
+                    />
+                  )}
+                  <CellaNum
+                    valore={t.aggiuntivi}
+                    onSet={(v) => modifica(t.anno, { aggiuntivi: v })}
+                  />
+                  {derivato.fatturato ? (
+                    <CellaCalcolata valore={t.fatturato} />
+                  ) : (
+                    <CellaNum
+                      valore={t.fatturato}
+                      onSet={(v) => modifica(t.anno, { fatturato: v })}
+                    />
+                  )}
+                  <td className="num">
+                    <input
+                      type="number"
+                      step="0.001"
+                      style={{ width: 70 }}
+                      value={numOr(t.tassazione)}
+                      onChange={(e) =>
+                        modifica(t.anno, {
+                          tassazione:
+                            e.target.value === ""
+                              ? undefined
+                              : Number(e.target.value),
+                        })
+                      }
+                    />
+                  </td>
+                  <td className="num">
+                    <b>{euro(stima, true)}</b>
+                  </td>
+                  <td className="num">{euro(stima / 365, true)}</td>
+                  <td>
+                    {!haFatture && (
+                      <button
+                        className="secondario"
+                        style={{ padding: "2px 8px" }}
+                        onClick={() => elimina(t.anno)}
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <div style={{ marginTop: 12 }}>
+        <button className="secondario" onClick={aggiungiAnno}>
+          + Aggiungi anno
+        </button>
+      </div>
+
     </>
   );
 }

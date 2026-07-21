@@ -872,3 +872,89 @@ details.info[open] > summary {
     padding: 10px 14px; /* area di tocco piu' generosa */
   }
 }
+
+/* ---------- Saldo reale: layout grafico + colonna laterale ---------- */
+.saldo-griglia {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+  align-items: start;
+  margin-bottom: 16px;
+}
+.saldo-grafico-card {
+  margin-bottom: 0;
+}
+.saldo-grafico {
+  width: 100%;
+  height: 420px;
+}
+.saldo-torta {
+  width: 100%;
+  height: 240px;
+}
+.saldo-lato {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.saldo-lato .card {
+  margin-bottom: 0;
+}
+
+.saldo-riepilogo {
+  display: flex;
+  flex-direction: column;
+}
+.riep-riga {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--bordo);
+}
+.riep-riga:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+.riep-etichetta {
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.riep-valore {
+  font-size: 18px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.riep-riga.forte .riep-valore {
+  font-size: 20px;
+}
+
+@media (min-width: 1024px) {
+  .saldo-griglia {
+    grid-template-columns: minmax(0, 1.9fr) minmax(300px, 1fr);
+  }
+  /* Il riepilogo resta visibile scorrendo il grafico. */
+  .saldo-lato {
+    position: sticky;
+    top: 76px;
+  }
+}
+
+@media (max-width: 760px) {
+  /* Su smartphone tutto in colonna: grafico, poi torta, poi riepilogo. */
+  .saldo-grafico {
+    height: 300px;
+  }
+  .saldo-torta {
+    height: 220px;
+  }
+  .riep-valore {
+    font-size: 17px;
+  }
+}

@@ -205,6 +205,98 @@ export function annoHaFatture(anno: number, fatture?: Fattura[]): boolean {
   return !!fatture && fatture.some((f) => f.anno === anno);
 }
 
+/** Una riga dell'Analisi complessiva (lavoro anno per anno). */
+export interface RigaAnalisi {
+  anno: number;
+  /** L'anno ha fatture registrate (valori calcolati) o è tutto manuale. */
+  haFatture: boolean;
+  fatturato: number;
+  fatturatoStimato: number;
+  incassato: number;
+  /** Inarcassa usata (reale se l'anno è "chiuso" in Tasse, altrimenti stimata). */
+  inarcassa: number;
+  imposta: number;
+  /** L'Inarcassa mostrata viene dal valore reale dichiarato (anno chiuso). */
+  inarcassaDaChiuso: boolean;
+  impostaDaChiuso: boolean;
+  nettoInTasca: number;
+  entrateExtra: number;
+  spese: number;
+  nettoMensile12: number;
+  nettoMensile13: number;
+}
+
+/**
+ * Costruisce l'Analisi complessiva su tutti gli anni: quelli con fatture usano
+ * i valori calcolati; quelli senza (anni manuali/ipotetici, es. 2020) usano i
+ * valori digitati nel record AnnoTasse. Se un anno è marcato "chiuso" nella
+ * scheda Tasse (Inarcassa e/o Imposta), si usa il valore REALE dichiarato al
+ * posto della stima dalle fatture. Il netto/mese somma le entrate extra (non
+ * tassate) e sottrae le spese.
+ */
+export function analisiComplessiva(
+  tasse: AnnoTasse[],
+  fatture?: Fattura[],
+): RigaAnalisi[] {
+  const anni = new Set<number>();
+  for (const t of tasse) anni.add(t.anno);
+  for (const f of fatture ?? []) anni.add(f.anno);
+  const byAnno = new Map(tasse.map((t) => [t.anno, t]));
+
+  const rows: RigaAnalisi[] = [];
+  for (const anno of [...anni].sort((a, b) => a - b)) {
+    const t = byAnno.get(anno);
+    const ha = annoHaFatture(anno, fatture);
+    let fatturato = 0;
+    let fatturatoStimato = 0;
+    let incassato = 0;
+    let inarcassaCalc = 0;
+    let impostaCalc = 0;
+    if (ha) {
+      const c = calcolaAnno(anno, fatture!, {
+        ridotta: t?.inarcassaRidotta,
+        maternita: t?.maternita,
+      });
+      fatturato = c.fatturato;
+      fatturatoStimato = c.fatturatoStimato;
+      incassato = c.incassato;
+      inarcassaCalc = c.inarcassa;
+      impostaCalc = c.imposta;
+    } else {
+      fatturato = t?.fatturato ?? 0;
+      incassato = t?.fatturato ?? 0;
+      inarcassaCalc = t?.inarcassa ?? 0;
+      impostaCalc = t?.irpef ?? 0;
+    }
+    // "Chiuso" in Tasse: il valore reale dichiarato vince sulla stima.
+    const inarcassaDaChiuso = ha && !!t?.inarcassaChiuso && t?.inarcassa !== undefined;
+    const impostaDaChiuso = ha && !!t?.impostaChiuso && t?.irpef !== undefined;
+    const inarcassa = inarcassaDaChiuso ? t!.inarcassa! : inarcassaCalc;
+    const imposta = impostaDaChiuso ? t!.irpef! : impostaCalc;
+    const nettoInTasca = incassato - inarcassa - imposta;
+    const entrateExtra = t?.entrateExtra ?? 0;
+    const spese = t?.spese ?? 0;
+    const nettoMensile12 = (nettoInTasca + entrateExtra - spese) / 12;
+    rows.push({
+      anno,
+      haFatture: ha,
+      fatturato,
+      fatturatoStimato,
+      incassato,
+      inarcassa,
+      imposta,
+      inarcassaDaChiuso,
+      impostaDaChiuso,
+      nettoInTasca,
+      entrateExtra,
+      spese,
+      nettoMensile12,
+      nettoMensile13: (nettoMensile12 * 12) / 13,
+    });
+  }
+  return rows;
+}
+
 /**
  * Per un anno, dice quali campi fiscali sono stati **calcolati dalle fatture**
  * (perché lasciati vuoti in Tasse) e quali sono valori reali dichiarati a mano.
