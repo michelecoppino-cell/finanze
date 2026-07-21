@@ -152,17 +152,22 @@ export function analizza(
       continue;
     }
 
-    const cat = t.categoria?.trim() || SENZA_CATEGORIA;
-    categorieUsate.add(cat);
-
     if (t.uscite) {
-      riga.perCategoria[cat] = (riga.perCategoria[cat] ?? 0) + t.uscite;
-      riga.totaleUscite += t.uscite;
-      totalePerCategoria[cat] = (totalePerCategoria[cat] ?? 0) + t.uscite;
-      totaleUscite += t.uscite;
       if (t.tasse) {
+        // Le tasse non sono una spesa discrezionale: escluse dalle categorie
+        // e dal totale uscite. Il loro impatto va invece stimato a parte
+        // (pannello Tasse, spalmato giorno per giorno) sottraendolo dalle
+        // entrate, perche' i pagamenti reali sono spesso concentrati in
+        // poche rate irregolari e sballerebbero il periodo in cui cadono.
         riga.tasse += t.uscite;
         totaleTasse += t.uscite;
+      } else {
+        const cat = t.categoria?.trim() || SENZA_CATEGORIA;
+        categorieUsate.add(cat);
+        riga.perCategoria[cat] = (riga.perCategoria[cat] ?? 0) + t.uscite;
+        riga.totaleUscite += t.uscite;
+        totalePerCategoria[cat] = (totalePerCategoria[cat] ?? 0) + t.uscite;
+        totaleUscite += t.uscite;
       }
     }
     if (t.entrate) {

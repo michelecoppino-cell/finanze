@@ -11,7 +11,8 @@ import {
 } from "recharts";
 import { useApp } from "../store/AppStore";
 import { analizza, perAnno, RigaMese } from "../engine/analisi";
-import { euro, labelMese, annoMese } from "../util";
+import { tasseStimatePeriodo } from "../engine/tasse";
+import { euro, labelMese, annoMese, ultimoGiornoMese } from "../util";
 import { Info } from "../components/Info";
 
 // Palette categorica (neutra, leggibile in chiaro e scuro).
@@ -120,6 +121,23 @@ export function AnalisiSpese() {
     [analisi, coloreCat, nMesi],
   );
 
+  // Stima delle tasse maturate nel periodo selezionato (spalmate giorno per
+  // giorno dal pannello Tasse), da sottrarre alle entrate: i pagamenti reali
+  // (analisi.totaleTasse) sono spesso concentrati in poche rate irregolari e
+  // non riflettono il "costo" delle tasse in un periodo qualsiasi.
+  const meseIniziale = da || primoMese;
+  const meseFinale = a || ultimoMese;
+  const tasseStimate = useMemo(() => {
+    if (!meseIniziale || !meseFinale) return 0;
+    return tasseStimatePeriodo(
+      dati.tasse,
+      `${meseIniziale}-01`,
+      ultimoGiornoMese(meseFinale),
+    );
+  }, [dati.tasse, meseIniziale, meseFinale]);
+
+  const entrateNette = analisi.totaleEntrate - tasseStimate;
+
   if (dati.transazioni.length === 0) {
     return (
       <div className="card vuoto">
@@ -129,7 +147,7 @@ export function AnalisiSpese() {
     );
   }
 
-  const saldoNetto = analisi.totaleEntrate - analisi.totaleUscite;
+  const saldoNetto = entrateNette - analisi.totaleUscite;
 
   // Preset di range comodi.
   const annoCorrente = new Date().getFullYear();
@@ -244,23 +262,73 @@ export function AnalisiSpese() {
 
       <div className="stat-griglia">
         <div className="stat">
-          <div className="etichetta">Entrate totali</div>
-          <div className="valore entrata">{euro(analisi.totaleEntrate)}</div>
+          <div className="etichetta">
+            Entrate totali
+            <Info>
+              Entrate lorde del periodo meno una <b>stima</b> delle tasse
+              maturate (pannello <b>Tasse</b>, spalmate giorno per giorno
+              sull'anno) — non i pagamenti reali, spesso concentrati in poche
+              rate irregolari che sballerebbero il periodo in cui cadono.
+              <br />
+              {euro(analisi.totaleEntrate, true)} − {euro(tasseStimate, true)}{" "}
+              = <b>{euro(entrateNette, true)}</b>
+            </Info>
+          </div>
+          <div className="valore entrata">{euro(entrateNette)}</div>
+          {tasseStimate > 0 && (
+            <div className="muted" style={{ fontSize: 12 }}>
+              lorde {euro(analisi.totaleEntrate)}, −{euro(tasseStimate)} tasse
+              stimate
+            </div>
+          )}
         </div>
         <div className="stat">
-          <div className="etichetta">Uscite totali</div>
+          <div className="etichetta">
+            Uscite totali
+            <Info>
+              Spese per categoria nel periodo. Le tasse (movimenti con flag{" "}
+              <b>Tasse</b>) non sono incluse: la stima del loro impatto è già
+              sottratta dalle entrate totali qui sopra.
+            </Info>
+          </div>
           <div className="valore uscita">{euro(analisi.totaleUscite)}</div>
         </div>
         <div className="stat">
           <div className="etichetta">
-            di cui tasse
+            Spesa mensile media
             <Info>
-              Somma delle uscite con il flag <b>Tasse</b> nel periodo
-              selezionato (già comprese nelle uscite totali).
+              Somma delle categorie del grafico qui sotto: uscite totali del
+              periodo (tasse escluse) divise per i mesi coperti dal periodo.
+              <br />
+              {euro(analisi.totaleUscite, true)} / {nMesi}{" "}
+              {nMesi === 1 ? "mese" : "mesi"} ={" "}
+              <b>{euro(analisi.totaleUscite / nMesi, true)}</b>
             </Info>
           </div>
-          <div className="valore">{euro(analisi.totaleTasse)}</div>
+          <div className="valore uscita">
+            {euro(analisi.totaleUscite / nMesi)}
+          </div>
         </div>
+        {(tasseStimate > 0 || analisi.totaleTasse > 0) && (
+          <div className="stat">
+            <div className="etichetta">
+              Tasse: stimate / pagate
+              <Info>
+                <b>Stimate</b>: quota del totale annuo dichiarato nel pannello
+                Tasse spalmata giorno per giorno sul periodo selezionato — è
+                l'importo già sottratto dalle entrate totali.
+                <br />
+                <b>Pagate</b>: somma dei movimenti con flag Tasse nel periodo
+                (versamenti reali, spesso irregolari). Non influenzano più le
+                uscite totali qui sopra.
+              </Info>
+            </div>
+            <div className="valore">{euro(tasseStimate)}</div>
+            <div className="muted" style={{ fontSize: 12 }}>
+              stimate · pagate nel periodo {euro(analisi.totaleTasse)}
+            </div>
+          </div>
+        )}
         {analisi.totaleMutuoCapitale > 0 && (
           <div className="stat">
             <div className="etichetta">
@@ -300,10 +368,10 @@ export function AnalisiSpese() {
           <div className="etichetta">
             Saldo netto
             <Info>
-              <b>Saldo netto</b> = entrate − uscite del periodo (trasferimenti
-              e voci annullate esclusi).
+              <b>Saldo netto</b> = entrate nette di tasse stimate − uscite del
+              periodo (trasferimenti, tasse e voci annullate esclusi).
               <br />
-              {euro(analisi.totaleEntrate, true)} −{" "}
+              {euro(entrateNette, true)} −{" "}
               {euro(analisi.totaleUscite, true)} = <b>{euro(saldoNetto, true)}</b>
             </Info>
           </div>
@@ -315,19 +383,19 @@ export function AnalisiSpese() {
           <div className="etichetta">
             Tasso di risparmio
             <Info>
-              <b>Tasso di risparmio</b> = saldo netto / entrate totali.
+              <b>Tasso di risparmio</b> = saldo netto / entrate nette.
               <br />
-              {euro(saldoNetto, true)} / {euro(analisi.totaleEntrate, true)} ={" "}
+              {euro(saldoNetto, true)} / {euro(entrateNette, true)} ={" "}
               <b>
-                {analisi.totaleEntrate > 0
-                  ? ((saldoNetto / analisi.totaleEntrate) * 100).toFixed(0) + "%"
+                {entrateNette > 0
+                  ? ((saldoNetto / entrateNette) * 100).toFixed(0) + "%"
                   : "—"}
               </b>
             </Info>
           </div>
           <div className="valore">
-            {analisi.totaleEntrate > 0
-              ? ((saldoNetto / analisi.totaleEntrate) * 100).toFixed(0) + "%"
+            {entrateNette > 0
+              ? ((saldoNetto / entrateNette) * 100).toFixed(0) + "%"
               : "—"}
           </div>
           <div className="muted" style={{ fontSize: 12 }}>
