@@ -128,6 +128,13 @@ export function annoMese(iso: string): string {
   return iso.slice(0, 7);
 }
 
+/** yyyy-mm -> yyyy-mm-dd dell'ultimo giorno di quel mese. */
+export function ultimoGiornoMese(annoMese: string): string {
+  const [y, m] = annoMese.split("-").map(Number);
+  const ultimo = new Date(y, m, 0).getDate();
+  return `${annoMese}-${String(ultimo).padStart(2, "0")}`;
+}
+
 /** Palette dei badge/linee per conto (assegnata per ordine alfabetico dei conti). */
 export const COLORI_CONTO = [
   "#4c78a8", "#f58518", "#54a24b", "#b279a2", "#e45756", "#72b7b2",
