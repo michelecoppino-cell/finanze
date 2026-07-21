@@ -101,6 +101,17 @@ export interface AnnoTasse {
   /** Contributo maternità Inarcassa dell'anno (default 72€), usato dal calcolo da fatture. */
   maternita?: number;
   /**
+   * Entrate extra dell'anno NON soggette a tasse (es. rimborsi, lavoretti
+   * occasionali fuori partita IVA): non entrano nel calcolo fiscale ma vengono
+   * sommate al netto nel calcolo del netto/mese dell'Analisi complessiva.
+   */
+  entrateExtra?: number;
+  /**
+   * Spese dell'anno da sottrarre nel calcolo del netto/mese dell'Analisi
+   * complessiva (es. spese professionali non deducibili nel forfettario).
+   */
+  spese?: number;
+  /**
    * Esclude l'anno dal calcolo del saldo reale (Saldo!maturate): utile per
    * anni ricostruiti senza le vere transazioni/pagamenti tasse, dove
    * sottrarre l'importo maturato creerebbe un buco mai compensato da un

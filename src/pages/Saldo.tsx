@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
-  AreaChart,
+  ComposedChart,
   Area,
+  Line,
   XAxis,
   YAxis,
   Tooltip,
@@ -34,13 +35,10 @@ const COLORI_PATRIMONIO = {
   liquidita: "#199e70",
 };
 
-/** Opacita' di riempimento delle aree: leggera, cosi' dove si sovrappongono
- * si intuisce comunque quale sta "sopra" (v. ordine di disegno nel grafico). */
-const OPACITA_AREA = 0.28;
-
-const NOME_SALDO_TOTALE = "Liquidità totale netta";
+const NOME_LIQ = "Liquidità (netto tasse)";
+const NOME_ETF = "PAC/ETF";
+const NOME_IMM = "Immobili";
 const NOME_SALDO_GREZZO = "Saldo grezzo";
-const NOME_SALDO_COMPRENSIVO = "Patrimonio";
 
 export function Saldo() {
   const { dati } = useApp();
@@ -48,7 +46,6 @@ export function Saldo() {
   const [a, setA] = useState("");
   const [nascoste, setNascoste] = useState<Set<string>>(new Set());
   const [mostraGrezzo, setMostraGrezzo] = useState(false);
-  const [mostraComprensivo, setMostraComprensivo] = useState(true);
   const [mostraConti, setMostraConti] = useState(false);
 
   // Le tasse per anno vengono, dove disponibili, calcolate dalle fatture
@@ -101,18 +98,19 @@ export function Saldo() {
 
   const datiGraficoBase = useMemo(() => campiona(puntiRange, 7), [puntiRange]);
 
-  // Il comprensivo aggiunge l'equity immobiliare storica ad ogni punto (non
-  // solo quella di oggi), cosi' la curva riflette l'andamento nel tempo.
+  // A ogni punto attacco l'equity immobiliare storica (non solo quella di oggi),
+  // cosi' le bande impilate del grafico riflettono l'andamento nel tempo:
+  // liquidita' (netto tasse) + PAC/ETF (investito) + immobili (equity).
   const datiGrafico = useMemo(
     () =>
-      datiGraficoBase.map((p: PuntoSaldo) => ({
-        ...p,
-        comprensivo: round2(
-          p.nettoTasse +
-            p.investito +
-            (mutui.length > 0 ? equityImmobili(mutui, p.data) : 0),
-        ),
-      })),
+      datiGraficoBase.map((p: PuntoSaldo) => {
+        const equity = mutui.length > 0 ? round2(equityImmobili(mutui, p.data)) : 0;
+        return {
+          ...p,
+          equity,
+          comprensivo: round2(p.nettoTasse + p.investito + equity),
+        };
+      }),
     [datiGraficoBase, mutui],
   );
 
@@ -176,191 +174,106 @@ export function Saldo() {
 
   return (
     <>
-      <div className="stat-griglia">
-        <div className="stat">
-          <div className="etichetta">
-            Saldo grezzo
-            <Info>
-              <b>Saldo grezzo</b> = saldo iniziale + entrate − uscite dai
-              movimenti (voci annullate escluse).
-              <br />
-              {euro(dati.parametri.saldoInizialeValore, true)} (al{" "}
-              {dati.parametri.saldoInizialeData}) +{" "}
-              {euro(somme.entrate, true)} − {euro(somme.uscite, true)} ={" "}
-              <b>{euro(u?.grezzo, true)}</b>
-            </Info>
-          </div>
-          <div className="valore">{euro(u?.grezzo)}</div>
-          <div className="muted" style={{ fontSize: 12 }}>
-            soldi effettivi sul conto
-          </div>
-        </div>
-        <div className="stat">
-          <div className="etichetta">
-            Netto tasse
-            <Info>
-              <b>Netto tasse</b> = saldo grezzo − tasse maturate + tasse già
-              pagate.
-              <br />
-              Le tasse annue (pagina <b>Tasse</b>) vengono spalmate
-              giorno-per-giorno come se fossero accantonate; i pagamenti reali
-              (movimenti col flag Tasse, {euro(somme.tassePagate, true)})
-              vengono riaggiunti per non contarli due volte.
-              <br />
-              {euro(u?.grezzo, true)} −{" "}
-              {euro(
-                u
-                  ? u.grezzo - u.nettoTasse + somme.tassePagate
-                  : undefined,
-                true,
-              )}{" "}
-              + {euro(somme.tassePagate, true)} = <b>{euro(u?.nettoTasse, true)}</b>
-            </Info>
-          </div>
-          <div className="valore" style={{ color: COLORI.nettoTasse }}>
-            {euro(u?.nettoTasse)}
-          </div>
-          <div className="muted" style={{ fontSize: 12 }}>
-            tasse accantonate
-          </div>
-        </div>
-        {haInvestito && (
-          <>
-            <div className="stat">
-              <div className="etichetta">
-                Investito in PAC/ETF
-                <Info>
-                  Somma delle uscite marcate <b>Giro</b> (trasferimenti verso
-                  PAC/ETF o altri conti): sono uscite dal conto ma non spese,
-                  quindi restano nel patrimonio come capitale investito.
-                  Distinto dall'equity immobiliare, mostrata a parte qui
-                  sotto.
-                </Info>
-              </div>
-              <div className="valore" style={{ color: COLORI_PATRIMONIO.etf }}>
-                {euro(u?.investito)}
-              </div>
-              <div className="muted" style={{ fontSize: 12 }}>
-                trasferito su PAC/ETF o altri conti
-              </div>
-            </div>
-            <div className="stat">
-              <div className="etichetta">
-                Patrimonio totale
-                <Info>
-                  <b>Patrimonio totale</b> = netto tasse + investito.
-                  <br />
-                  {euro(u?.nettoTasse, true)} + {euro(u?.investito, true)} ={" "}
-                  <b>{euro(u?.totale, true)}</b>
-                </Info>
-              </div>
-              <div className="valore" style={{ color: COLORI.totale }}>
-                {euro(u?.totale)}
-              </div>
-              <div className="muted" style={{ fontSize: 12 }}>
-                netto tasse + investito
-              </div>
-            </div>
-          </>
-        )}
-        {equityImmobile > 0 && (
-          <>
-            <div className="stat">
-              <div className="etichetta">
-                Immobile (equity)
-                <Info>
-                  Anticipo + capitale rimborsato con le rate scadute, dal piano
-                  di ammortamento dei mutui configurati in <b>Impostazioni</b>.
-                  Le rate e l'anticipo sono già uscite dal conto: qui la parte
-                  investita rientra nel patrimonio.
-                </Info>
-              </div>
-              <div className="valore" style={{ color: COLORI_PATRIMONIO.immobili }}>
-                {euro(equityImmobile)}
-              </div>
-              <div className="muted" style={{ fontSize: 12 }}>
-                anticipo + capitale rimborsato
-              </div>
-            </div>
-            <div className="stat">
-              <div className="etichetta">
-                Patrimonio con immobile
-                <Info>
-                  Netto tasse + investito (giroconti) + equity immobiliare.
-                  <br />
-                  {euro(u?.nettoTasse, true)} + {euro(u?.investito ?? 0, true)}{" "}
-                  + {euro(equityImmobile, true)} ={" "}
-                  <b>
-                    {euro(
-                      u ? u.nettoTasse + (u.investito ?? 0) + equityImmobile : undefined,
-                      true,
-                    )}
-                  </b>
-                </Info>
-              </div>
-              <div className="valore" style={{ color: COLORI.totale }}>
-                {euro(
-                  u ? u.nettoTasse + (u.investito ?? 0) + equityImmobile : undefined,
-                )}
-              </div>
-              <div className="muted" style={{ fontSize: 12 }}>
-                incluso l'immobile (al costo)
-              </div>
-            </div>
-          </>
-        )}
-        <div className="stat">
-          <div className="etichetta">Ultimo dato</div>
-          <div className="valore" style={{ fontSize: 18 }}>
-            {u?.data ?? "—"}
-          </div>
-        </div>
-      </div>
-
-      {composizione.fette.length > 0 && (
-        <div className="card">
+      <div className="saldo-griglia">
+        {/* -------- Colonna sinistra: andamento del saldo -------- */}
+        <div className="card saldo-grafico-card">
           <div
             className="riga-azioni"
-            style={{ justifyContent: "space-between", marginBottom: 4 }}
+            style={{ justifyContent: "space-between", marginBottom: 10 }}
           >
-            <h3 style={{ margin: 0 }}>Composizione del patrimonio (oggi)</h3>
-            <span className="muted">
-              Totale: <b style={{ color: "var(--testo)" }}>{euro(composizione.totale)}</b>
-            </span>
+            <h3 style={{ margin: 0 }}>Andamento del saldo</h3>
+            <div className="riga-azioni" style={{ gap: 6 }}>
+              <button className="secondario" onClick={() => preset("tutto")}>
+                Tutto
+              </button>
+              <button className="secondario" onClick={() => preset("ultimoAnno")}>
+                Ultimo anno
+              </button>
+              <button className="secondario" onClick={() => preset("ultimi3")}>
+                Ultimi 3 anni
+              </button>
+              <button className="secondario" onClick={() => preset("annoCorrente")}>
+                {annoCorrente}
+              </button>
+            </div>
           </div>
-          <p className="muted" style={{ marginTop: 0 }}>
-            Fatto 100 il patrimonio di oggi, quanto è immobili (equity),
-            quanto ETF/PAC e quanto liquidità netta tasse.
+          <div className="riga-azioni" style={{ marginBottom: 10 }}>
+            <label className="filtro-campo">
+              <span>Da</span>
+              <input
+                type="date"
+                value={da}
+                min={primaData}
+                max={ultimaData}
+                onChange={(e) => setDa(e.target.value)}
+              />
+            </label>
+            <label className="filtro-campo">
+              <span>A</span>
+              <input
+                type="date"
+                value={a}
+                min={primaData}
+                max={ultimaData}
+                onChange={(e) => setA(e.target.value)}
+              />
+            </label>
+          </div>
+          <p className="muted" style={{ marginTop: -4 }}>
+            Bande impilate del patrimonio nel tempo: <b>{NOME_LIQ}</b> (soldi
+            subito disponibili, tasse forfettario + Inarcassa accantonate
+            giorno-per-giorno), sopra <b>{NOME_ETF}</b> (giroconti verso
+            investimenti) e <b>{NOME_IMM}</b> (equity da anticipo + capitale
+            rimborsato). La cima è il patrimonio complessivo.
+            {conti.length > 0 && (
+              <>
+                {" "}
+                Attiva <b>Saldi per conto</b> per l'andamento grezzo di ogni
+                conto.
+              </>
+            )}{" "}
+            Clicca la legenda per accendere/spegnere una banda.
           </p>
-          <div style={{ width: "100%", height: 300 }}>
+          <div className="riga-azioni" style={{ marginBottom: 10, gap: 16 }}>
+            <label className="filtro-campo" style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <input
+                type="checkbox"
+                checked={mostraGrezzo}
+                onChange={(e) => setMostraGrezzo(e.target.checked)}
+              />
+              <span>{NOME_SALDO_GREZZO}</span>
+            </label>
+            {conti.length > 0 && (
+              <label className="filtro-campo" style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <input
+                  type="checkbox"
+                  checked={mostraConti}
+                  onChange={(e) => setMostraConti(e.target.checked)}
+                />
+                <span>Saldi per conto</span>
+              </label>
+            )}
+          </div>
+          <div className="saldo-grafico">
             <ResponsiveContainer>
-              <PieChart>
-                <Pie
-                  data={composizione.fette}
-                  dataKey="valore"
-                  nameKey="nome"
-                  innerRadius={70}
-                  outerRadius={110}
-                  paddingAngle={composizione.fette.length > 1 ? 2 : 0}
-                  label={({ percent }: { percent: number }) =>
-                    `${Math.round(percent * 100)}%`
-                  }
-                  labelLine={false}
-                >
-                  {composizione.fette.map((f) => (
-                    <Cell
-                      key={f.nome}
-                      fill={f.colore}
-                      stroke="var(--bg-card)"
-                      strokeWidth={2}
-                    />
-                  ))}
-                </Pie>
+              <ComposedChart
+                data={datiGrafico}
+                margin={{ top: 8, right: 12, left: 8, bottom: 8 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--bordo)" />
+                <XAxis
+                  dataKey="data"
+                  tick={{ fontSize: 11, fill: "var(--muted)" }}
+                  tickFormatter={(v: string) => v.slice(0, 7)}
+                  minTickGap={40}
+                />
+                <YAxis
+                  tick={{ fontSize: 11, fill: "var(--muted)" }}
+                  tickFormatter={(v) => euro(v)}
+                  width={64}
+                />
                 <Tooltip
-                  formatter={(v: number, n: string) => [
-                    `${euro(v, true)} (${((v / composizione.totale) * 100).toFixed(1)}%)`,
-                    n,
-                  ]}
+                  formatter={(v: number) => euro(v, true)}
                   contentStyle={{
                     background: "var(--bg-card)",
                     border: "1px solid var(--bordo)",
@@ -368,204 +281,246 @@ export function Saldo() {
                     color: "var(--testo)",
                   }}
                 />
-                <Legend />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      )}
-
-      <div className="card">
-        <div
-          className="riga-azioni"
-          style={{ justifyContent: "space-between", marginBottom: 10 }}
-        >
-          <h3 style={{ margin: 0 }}>Andamento del saldo</h3>
-          <div className="riga-azioni" style={{ gap: 6 }}>
-            <button className="secondario" onClick={() => preset("tutto")}>
-              Tutto
-            </button>
-            <button className="secondario" onClick={() => preset("ultimoAnno")}>
-              Ultimo anno
-            </button>
-            <button className="secondario" onClick={() => preset("ultimi3")}>
-              Ultimi 3 anni
-            </button>
-            <button
-              className="secondario"
-              onClick={() => preset("annoCorrente")}
-            >
-              {annoCorrente}
-            </button>
-          </div>
-        </div>
-        <div className="riga-azioni" style={{ marginBottom: 10 }}>
-          <label className="filtro-campo">
-            <span>Da</span>
-            <input
-              type="date"
-              value={da}
-              min={primaData}
-              max={ultimaData}
-              onChange={(e) => setDa(e.target.value)}
-            />
-          </label>
-          <label className="filtro-campo">
-            <span>A</span>
-            <input
-              type="date"
-              value={a}
-              min={primaData}
-              max={ultimaData}
-              onChange={(e) => setA(e.target.value)}
-            />
-          </label>
-        </div>
-        <p className="muted" style={{ marginTop: -4 }}>
-          <b>{NOME_SALDO_TOTALE}</b>: saldo netto tasse su tutti i conti — i
-          soldi davvero tuoi e subito disponibili, con le tasse (forfettario +
-          Inarcassa) accantonate giorno-per-giorno.{" "}
-          <b>{NOME_SALDO_COMPRENSIVO}</b>: {NOME_SALDO_TOTALE.toLowerCase()} +
-          quanto investito (giroconti/ETF) + equity immobiliare (mutui) — il
-          valore complessivo di quanto possiedi. Dove le due curve
-          coincidono (nessun investimento nel periodo) vedi solo{" "}
-          {NOME_SALDO_TOTALE}, disegnata sopra.
-          {conti.length > 0 && (
-            <>
-              {" "}
-              <b>Saldi per conto</b>: andamento grezzo (senza tasse) di ogni
-              singolo conto.
-            </>
-          )}{" "}
-          Clicca sulla legenda per accendere/spegnere ciascuna curva.
-        </p>
-        <div className="riga-azioni" style={{ marginBottom: 10, gap: 16 }}>
-          <label className="filtro-campo" style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-            <input
-              type="checkbox"
-              checked={mostraComprensivo}
-              onChange={(e) => setMostraComprensivo(e.target.checked)}
-            />
-            <span>{NOME_SALDO_COMPRENSIVO}</span>
-          </label>
-          <label className="filtro-campo" style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-            <input
-              type="checkbox"
-              checked={mostraGrezzo}
-              onChange={(e) => setMostraGrezzo(e.target.checked)}
-            />
-            <span>{NOME_SALDO_GREZZO}</span>
-          </label>
-          {conti.length > 0 && (
-            <label className="filtro-campo" style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-              <input
-                type="checkbox"
-                checked={mostraConti}
-                onChange={(e) => setMostraConti(e.target.checked)}
-              />
-              <span>Saldi per conto</span>
-            </label>
-          )}
-        </div>
-        <div style={{ width: "100%", height: 360 }}>
-          <ResponsiveContainer>
-            <AreaChart
-              data={datiGrafico}
-              margin={{ top: 8, right: 12, left: 8, bottom: 8 }}
-            >
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--bordo)" />
-              <XAxis
-                dataKey="data"
-                tick={{ fontSize: 11, fill: "var(--muted)" }}
-                tickFormatter={(v: string) => v.slice(0, 7)}
-                minTickGap={40}
-              />
-              <YAxis
-                tick={{ fontSize: 11, fill: "var(--muted)" }}
-                tickFormatter={(v) => euro(v)}
-                width={72}
-              />
-              <Tooltip
-                formatter={(v: number) => euro(v, true)}
-                contentStyle={{
-                  background: "var(--bg-card)",
-                  border: "1px solid var(--bordo)",
-                  borderRadius: 8,
-                  color: "var(--testo)",
-                }}
-              />
-              <Legend
-                onClick={(e) => alternaLinea(String(e.value))}
-                formatter={(value: string) => (
-                  <span
-                    style={{
-                      opacity: nascoste.has(value) ? 0.4 : 1,
-                      cursor: "pointer",
-                    }}
-                  >
-                    {value}
-                  </span>
-                )}
-              />
-              {/* Ordine di disegno: le aree successive coprono le precedenti
-                  dove si sovrappongono. "Liquidità totale netta" va per
-                  ultima cosi' resta davanti al Patrimonio quando coincidono
-                  (nessun investito nel periodo). */}
-              {mostraConti &&
-                conti.map((c) => {
-                  const nome = `Saldo ${c}`;
-                  return (
-                    <Area
-                      key={c}
-                      type="monotone"
-                      dataKey={(p: PuntoSaldo & { comprensivo: number }) => p.perConto[c]}
-                      name={nome}
-                      stroke={coloreConto[c]}
-                      fill={coloreConto[c]}
-                      fillOpacity={OPACITA_AREA}
-                      hide={nascoste.has(nome)}
-                      dot={false}
-                      strokeWidth={1.5}
-                    />
-                  );
-                })}
-              {mostraGrezzo && (
+                <Legend
+                  onClick={(e) => alternaLinea(String(e.value))}
+                  formatter={(value: string) => (
+                    <span
+                      style={{
+                        opacity: nascoste.has(value) ? 0.4 : 1,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {value}
+                    </span>
+                  )}
+                />
+                {/* Bande impilate: liquidita' (sotto) -> PAC/ETF -> immobili (sopra) */}
                 <Area
                   type="monotone"
-                  dataKey="grezzo"
-                  name={NOME_SALDO_GREZZO}
-                  stroke={COLORI.grezzo}
-                  fill={COLORI.grezzo}
-                  fillOpacity={OPACITA_AREA}
+                  dataKey="nettoTasse"
+                  name={NOME_LIQ}
+                  stackId="p"
+                  stroke={COLORI_PATRIMONIO.liquidita}
+                  fill={COLORI_PATRIMONIO.liquidita}
+                  fillOpacity={0.6}
+                  hide={nascoste.has(NOME_LIQ)}
                   dot={false}
                   strokeWidth={1.5}
                 />
-              )}
-              {mostraComprensivo && (
                 <Area
                   type="monotone"
-                  dataKey="comprensivo"
-                  name={NOME_SALDO_COMPRENSIVO}
-                  stroke={COLORI.totale}
-                  fill={COLORI.totale}
-                  fillOpacity={OPACITA_AREA}
+                  dataKey="investito"
+                  name={NOME_ETF}
+                  stackId="p"
+                  stroke={COLORI_PATRIMONIO.etf}
+                  fill={COLORI_PATRIMONIO.etf}
+                  fillOpacity={0.6}
+                  hide={nascoste.has(NOME_ETF)}
                   dot={false}
-                  strokeWidth={2}
+                  strokeWidth={1.5}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="equity"
+                  name={NOME_IMM}
+                  stackId="p"
+                  stroke={COLORI_PATRIMONIO.immobili}
+                  fill={COLORI_PATRIMONIO.immobili}
+                  fillOpacity={0.6}
+                  hide={nascoste.has(NOME_IMM)}
+                  dot={false}
+                  strokeWidth={1.5}
+                />
+                {mostraGrezzo && (
+                  <Line
+                    type="monotone"
+                    dataKey="grezzo"
+                    name={NOME_SALDO_GREZZO}
+                    stroke={COLORI.grezzo}
+                    strokeDasharray="4 3"
+                    dot={false}
+                    strokeWidth={1.5}
+                  />
+                )}
+                {mostraConti &&
+                  conti.map((c) => {
+                    const nome = `Saldo ${c}`;
+                    return (
+                      <Line
+                        key={c}
+                        type="monotone"
+                        dataKey={(p: PuntoSaldo & { equity: number }) => p.perConto[c]}
+                        name={nome}
+                        stroke={coloreConto[c]}
+                        hide={nascoste.has(nome)}
+                        dot={false}
+                        strokeWidth={1.5}
+                      />
+                    );
+                  })}
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* -------- Colonna destra: composizione + riepilogo -------- */}
+        <div className="saldo-lato">
+          {composizione.fette.length > 0 && (
+            <div className="card">
+              <div
+                className="riga-azioni"
+                style={{ justifyContent: "space-between", marginBottom: 4 }}
+              >
+                <h3 style={{ margin: 0 }}>Composizione del patrimonio (oggi)</h3>
+              </div>
+              <p className="muted" style={{ marginTop: 0, fontSize: 12 }}>
+                Totale{" "}
+                <b style={{ color: "var(--testo)" }}>{euro(composizione.totale)}</b>:
+                quanto è immobili (equity), quanto ETF/PAC e quanto liquidità
+                netta tasse.
+              </p>
+              <div className="saldo-torta">
+                <ResponsiveContainer>
+                  <PieChart>
+                    <Pie
+                      data={composizione.fette}
+                      dataKey="valore"
+                      nameKey="nome"
+                      innerRadius={55}
+                      outerRadius={90}
+                      paddingAngle={composizione.fette.length > 1 ? 2 : 0}
+                      label={({ percent }: { percent: number }) =>
+                        `${Math.round(percent * 100)}%`
+                      }
+                      labelLine={false}
+                    >
+                      {composizione.fette.map((f) => (
+                        <Cell
+                          key={f.nome}
+                          fill={f.colore}
+                          stroke="var(--bg-card)"
+                          strokeWidth={2}
+                        />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      formatter={(v: number, n: string) => [
+                        `${euro(v, true)} (${((v / composizione.totale) * 100).toFixed(1)}%)`,
+                        n,
+                      ]}
+                      contentStyle={{
+                        background: "var(--bg-card)",
+                        border: "1px solid var(--bordo)",
+                        borderRadius: 8,
+                        color: "var(--testo)",
+                      }}
+                    />
+                    <Legend />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
+
+          <div className="card">
+            <h3 style={{ marginTop: 0 }}>Riepilogo (oggi)</h3>
+            <div className="saldo-riepilogo">
+              <RigaRiep
+                etichetta="Saldo grezzo"
+                valore={euro(u?.grezzo)}
+                info={
+                  <>
+                    Saldo iniziale + entrate − uscite dai movimenti (voci
+                    annullate escluse).
+                    <br />
+                    {euro(dati.parametri.saldoInizialeValore, true)} (al{" "}
+                    {dati.parametri.saldoInizialeData}) + {euro(somme.entrate, true)}{" "}
+                    − {euro(somme.uscite, true)} = <b>{euro(u?.grezzo, true)}</b>
+                  </>
+                }
+              />
+              <RigaRiep
+                etichetta="Netto tasse"
+                valore={euro(u?.nettoTasse)}
+                colore={COLORI.nettoTasse}
+                info={
+                  <>
+                    Saldo grezzo − tasse maturate + tasse già pagate. Le tasse
+                    annue (pagina <b>Tasse</b>) sono spalmate giorno-per-giorno;
+                    i pagamenti reali ({euro(somme.tassePagate, true)}) vengono
+                    riaggiunti per non contarli due volte.
+                  </>
+                }
+              />
+              {haInvestito && (
+                <RigaRiep
+                  etichetta="Investito in PAC/ETF"
+                  valore={euro(u?.investito)}
+                  colore={COLORI_PATRIMONIO.etf}
+                  info={
+                    <>
+                      Uscite marcate <b>Giro</b> verso PAC/ETF o altri conti:
+                      escono dal conto ma restano nel patrimonio come capitale
+                      investito. Distinto dall'equity immobiliare.
+                    </>
+                  }
                 />
               )}
-              <Area
-                type="monotone"
-                dataKey="nettoTasse"
-                name={NOME_SALDO_TOTALE}
-                stroke={COLORI.nettoTasse}
-                fill={COLORI.nettoTasse}
-                fillOpacity={OPACITA_AREA}
-                hide={nascoste.has(NOME_SALDO_TOTALE)}
-                dot={false}
-                strokeWidth={2}
-              />
-            </AreaChart>
-          </ResponsiveContainer>
+              {haInvestito && (
+                <RigaRiep
+                  etichetta="Patrimonio totale"
+                  valore={euro(u?.totale)}
+                  colore={COLORI.totale}
+                  info={
+                    <>
+                      Netto tasse + investito.
+                      <br />
+                      {euro(u?.nettoTasse, true)} + {euro(u?.investito, true)} ={" "}
+                      <b>{euro(u?.totale, true)}</b>
+                    </>
+                  }
+                />
+              )}
+              {equityImmobile > 0 && (
+                <RigaRiep
+                  etichetta="Immobile (equity)"
+                  valore={euro(equityImmobile)}
+                  colore={COLORI_PATRIMONIO.immobili}
+                  info={
+                    <>
+                      Anticipo + capitale rimborsato con le rate scadute, dal
+                      piano di ammortamento dei mutui (<b>Impostazioni</b>).
+                    </>
+                  }
+                />
+              )}
+              {equityImmobile > 0 && (
+                <RigaRiep
+                  etichetta="Patrimonio + immobili"
+                  valore={euro(
+                    u ? u.nettoTasse + (u.investito ?? 0) + equityImmobile : undefined,
+                  )}
+                  colore={COLORI.totale}
+                  forte
+                  info={
+                    <>
+                      Netto tasse + investito + equity immobiliare.
+                      <br />
+                      {euro(u?.nettoTasse, true)} + {euro(u?.investito ?? 0, true)} +{" "}
+                      {euro(equityImmobile, true)} ={" "}
+                      <b>
+                        {euro(
+                          u ? u.nettoTasse + (u.investito ?? 0) + equityImmobile : undefined,
+                          true,
+                        )}
+                      </b>
+                    </>
+                  }
+                />
+              )}
+              <RigaRiep etichetta="Ultimo dato" valore={u?.data ?? "—"} />
+            </div>
+          </div>
         </div>
       </div>
 
@@ -584,4 +539,31 @@ export function Saldo() {
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+/** Riga compatta del riepilogo laterale: etichetta (con spiegazione) e valore. */
+function RigaRiep({
+  etichetta,
+  valore,
+  info,
+  colore,
+  forte,
+}: {
+  etichetta: string;
+  valore: string;
+  info?: ReactNode;
+  colore?: string;
+  forte?: boolean;
+}) {
+  return (
+    <div className={"riep-riga" + (forte ? " forte" : "")}>
+      <span className="riep-etichetta">
+        {etichetta}
+        {info && <Info>{info}</Info>}
+      </span>
+      <span className="riep-valore" style={colore ? { color: colore } : undefined}>
+        {valore}
+      </span>
+    </div>
+  );
 }
