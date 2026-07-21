@@ -170,12 +170,14 @@ export function anniConFatture(fatture: Fattura[]): number[] {
 }
 
 /**
- * Fonde i valori calcolati dalle fatture dentro l'elenco AnnoTasse: per ogni
- * anno che ha fatture, `inarcassa`, `irpef` e `fatturato` vengono presi dal
- * calcolo (fonte unica), mentre gli altri campi del record (chiusure, note,
- * escludiDalSaldo, aggiuntivi, aliquota) restano quelli dichiarati. Gli anni
- * senza fatture non vengono toccati. Così Saldo, Proiezione, Analisi e la
- * scheda Tasse leggono tutti lo stesso dato, senza doppie digitazioni.
+ * Fonde i valori calcolati dalle fatture dentro l'elenco AnnoTasse. Regola
+ * importante: le fatture **riempiono solo i campi lasciati vuoti** in Tasse,
+ * senza mai sovrascrivere un valore reale già dichiarato. Così gli anni chiusi
+ * (con concordato, crediti, conguagli ecc.) mantengono i numeri veri inseriti a
+ * mano, mentre gli anni/campi ancora vuoti prendono la stima dalle fatture. La
+ * scheda Fatture mostra comunque sempre il calcolo "vivo" dalle fatture.
+ *
+ * Restano toccati solo gli anni con fatture; gli altri passano invariati.
  */
 export function tasseConFatture(tasse: AnnoTasse[], fatture?: Fattura[]): AnnoTasse[] {
   if (!fatture || fatture.length === 0) return tasse;
@@ -190,9 +192,9 @@ export function tasseConFatture(tasse: AnnoTasse[], fatture?: Fattura[]): AnnoTa
     });
     perAnno.set(anno, {
       ...base,
-      inarcassa: c.inarcassa,
-      irpef: c.imposta,
-      fatturato: c.fatturato,
+      inarcassa: base.inarcassa ?? c.inarcassa,
+      irpef: base.irpef ?? c.imposta,
+      fatturato: base.fatturato ?? c.fatturato,
     });
   }
   return [...perAnno.values()].sort((a, b) => a.anno - b.anno);
@@ -201,4 +203,22 @@ export function tasseConFatture(tasse: AnnoTasse[], fatture?: Fattura[]): AnnoTa
 /** Vero se l'anno indicato ha almeno una fattura (quindi le tasse sono calcolate). */
 export function annoHaFatture(anno: number, fatture?: Fattura[]): boolean {
   return !!fatture && fatture.some((f) => f.anno === anno);
+}
+
+/**
+ * Per un anno, dice quali campi fiscali sono stati **calcolati dalle fatture**
+ * (perché lasciati vuoti in Tasse) e quali sono valori reali dichiarati a mano.
+ * Serve alla scheda Tasse per mostrare in sola-lettura solo i campi derivati.
+ */
+export function campiDaFatture(
+  raw: AnnoTasse | undefined,
+  anno: number,
+  fatture?: Fattura[],
+): { inarcassa: boolean; irpef: boolean; fatturato: boolean } {
+  const ha = annoHaFatture(anno, fatture);
+  return {
+    inarcassa: ha && raw?.inarcassa === undefined,
+    irpef: ha && raw?.irpef === undefined,
+    fatturato: ha && raw?.fatturato === undefined,
+  };
 }
