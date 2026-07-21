@@ -14,6 +14,7 @@ import {
 } from "recharts";
 import { useApp } from "../store/AppStore";
 import { calcolaSaldo, campiona, PuntoSaldo } from "../engine/saldo";
+import { tasseConFatture } from "../engine/fatture";
 import { equityImmobili } from "../engine/mutuo";
 import { euro, toIso, mappaColoriConto } from "../util";
 import { Info } from "../components/Info";
@@ -50,9 +51,16 @@ export function Saldo() {
   const [mostraComprensivo, setMostraComprensivo] = useState(true);
   const [mostraConti, setMostraConti] = useState(false);
 
+  // Le tasse per anno vengono, dove disponibili, calcolate dalle fatture
+  // (scheda Fatture): stessa fonte usata dalla scheda Tasse, niente doppioni.
+  const tasse = useMemo(
+    () => tasseConFatture(dati.tasse, dati.fatture),
+    [dati.tasse, dati.fatture],
+  );
+
   const ris = useMemo(
-    () => calcolaSaldo(dati.transazioni, dati.tasse, dati.parametri),
-    [dati.transazioni, dati.tasse, dati.parametri],
+    () => calcolaSaldo(dati.transazioni, tasse, dati.parametri),
+    [dati.transazioni, tasse, dati.parametri],
   );
 
   // Componenti del saldo, per le spiegazioni (i). Annullate escluse, come nei calcoli.
@@ -561,11 +569,12 @@ export function Saldo() {
         </div>
       </div>
 
-      {dati.tasse.length === 0 && (
+      {tasse.length === 0 && (
         <div className="card">
           <p className="muted" style={{ margin: 0 }}>
             Non hai ancora inserito i dati fiscali per anno: la curva "netto
-            tasse" coincide col grezzo. Aggiungili nella pagina <b>Tasse</b>.
+            tasse" coincide col grezzo. Aggiungili nella pagina <b>Tasse</b> o
+            registra le tue fatture in <b>Fatture</b>.
           </p>
         </div>
       )}
