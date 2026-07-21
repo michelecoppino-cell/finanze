@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   BarChart,
   Bar,
@@ -21,11 +21,42 @@ const PALETTE = [
   "#8cd17d", "#d4a6c8",
 ];
 
+const CHIAVE_CATEGORIE_ESCLUSE = "finanze:analisiSpese:categorieEscluse";
+
+function caricaCategorieEscluse(): Set<string> {
+  try {
+    const raw = localStorage.getItem(CHIAVE_CATEGORIE_ESCLUSE);
+    return raw ? new Set(JSON.parse(raw)) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
 export function AnalisiSpese() {
   const { dati } = useApp();
   const [vista, setVista] = useState<"mese" | "anno">("mese");
+  const [cifra, setCifra] = useState<"media" | "totale">("media");
   const [da, setDa] = useState("");
   const [a, setA] = useState("");
+  const [categorieEscluse, setCategorieEscluse] = useState<Set<string>>(
+    caricaCategorieEscluse,
+  );
+
+  useEffect(() => {
+    localStorage.setItem(
+      CHIAVE_CATEGORIE_ESCLUSE,
+      JSON.stringify([...categorieEscluse]),
+    );
+  }, [categorieEscluse]);
+
+  function toggleCategoriaEsclusa(nome: string) {
+    setCategorieEscluse((prev) => {
+      const next = new Set(prev);
+      if (next.has(nome)) next.delete(nome);
+      else next.add(nome);
+      return next;
+    });
+  }
 
   // Estremi disponibili (yyyy-mm) per popolare i selettori e i preset.
   const mesi = useMemo(() => {
@@ -36,16 +67,18 @@ export function AnalisiSpese() {
   const primoMese = mesi[0] ?? "";
   const ultimoMese = mesi[mesi.length - 1] ?? "";
 
-  // Applica il range temporale (inclusivo) prima dell'analisi.
+  // Applica il range temporale (inclusivo) e le categorie escluse prima
+  // dell'analisi, cosi' spariscono ovunque: totali, grafico e tabella.
   const transazioniFiltrate = useMemo(() => {
-    if (!da && !a) return dati.transazioni;
     return dati.transazioni.filter((t) => {
       const m = annoMese(t.data);
       if (da && m < da) return false;
       if (a && m > a) return false;
+      const cat = t.categoria?.trim();
+      if (cat && categorieEscluse.has(cat)) return false;
       return true;
     });
-  }, [dati.transazioni, da, a]);
+  }, [dati.transazioni, da, a, categorieEscluse]);
 
   const analisi = useMemo(
     () =>
@@ -66,17 +99,25 @@ export function AnalisiSpese() {
     return m;
   }, [analisi.categorie]);
 
+  // Numero di mesi coperti dal periodo selezionato (buchi inclusi), per la
+  // media mensile: analisi.mesi e' gia' riempito mese per mese da analizza().
+  const nMesi = analisi.mesi.length || 1;
+
   const datiGrafico = useMemo(
     () =>
       analisi.categorie
-        .map((c) => ({
-          categoria: c,
-          totale: analisi.totalePerCategoria[c] ?? 0,
-          colore: coloreCat[c],
-        }))
+        .map((c) => {
+          const totale = analisi.totalePerCategoria[c] ?? 0;
+          return {
+            categoria: c,
+            totale,
+            media: totale / nMesi,
+            colore: coloreCat[c],
+          };
+        })
         .filter((d) => d.totale > 0)
         .sort((a, b) => b.totale - a.totale),
-    [analisi, coloreCat],
+    [analisi, coloreCat, nMesi],
   );
 
   if (dati.transazioni.length === 0) {
@@ -160,6 +201,44 @@ export function AnalisiSpese() {
                 }`
               : "Tutto il periodo disponibile"}
           </span>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="riga-azioni" style={{ justifyContent: "space-between" }}>
+          <h3 style={{ margin: 0 }}>
+            Categorie escluse
+            <Info>
+              Clicca una categoria per escluderla dall'analisi: sparisce dai
+              totali, dal grafico e dalla tabella, come se quelle transazioni
+              non esistessero. Utile per spese una tantum che sballano le
+              medie (es. l'acquisto di una casa). La scelta resta salvata su
+              questo dispositivo.
+            </Info>
+          </h3>
+          {categorieEscluse.size > 0 && (
+            <button className="secondario" onClick={() => setCategorieEscluse(new Set())}>
+              Includi tutte
+            </button>
+          )}
+        </div>
+        <div className="riga-azioni" style={{ marginTop: 10, flexWrap: "wrap" }}>
+          {dati.categorie.map((c) => {
+            const esclusa = categorieEscluse.has(c.nome);
+            return (
+              <button
+                key={c.nome}
+                className="secondario"
+                style={{
+                  opacity: esclusa ? 0.5 : 1,
+                  textDecoration: esclusa ? "line-through" : "none",
+                }}
+                onClick={() => toggleCategoriaEsclusa(c.nome)}
+              >
+                {c.nome}
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -258,13 +337,31 @@ export function AnalisiSpese() {
       </div>
 
       <div className="card">
-        <h3>
-          Spese per categoria{" "}
-          <span className="muted" style={{ fontWeight: 400, fontSize: 13 }}>
-            · {rangeAttivo ? "periodo selezionato" : "tutto il periodo"}
-          </span>
-        </h3>
-        <div style={{ width: "100%", height: 300 }}>
+        <div className="riga-azioni" style={{ justifyContent: "space-between" }}>
+          <h3 style={{ margin: 0 }}>
+            {cifra === "media" ? "Spesa mensile media per categoria" : "Spese per categoria"}{" "}
+            <span className="muted" style={{ fontWeight: 400, fontSize: 13 }}>
+              · {rangeAttivo ? "periodo selezionato" : "tutto il periodo"}
+            </span>
+          </h3>
+          <div className="riga-azioni" style={{ gap: 0 }}>
+            <button
+              className={cifra === "media" ? "primario" : "secondario"}
+              onClick={() => setCifra("media")}
+              style={{ borderRadius: "8px 0 0 8px" }}
+            >
+              Media mensile
+            </button>
+            <button
+              className={cifra === "totale" ? "primario" : "secondario"}
+              onClick={() => setCifra("totale")}
+              style={{ borderRadius: "0 8px 8px 0" }}
+            >
+              Totale periodo
+            </button>
+          </div>
+        </div>
+        <div style={{ width: "100%", height: 300, marginTop: 10 }}>
           <ResponsiveContainer>
             <BarChart
               data={datiGrafico}
@@ -285,7 +382,9 @@ export function AnalisiSpese() {
                 width={70}
               />
               <Tooltip
-                formatter={(v: number) => euro(v, true)}
+                formatter={(v: number) =>
+                  euro(v, true) + (cifra === "media" ? "/mese" : "")
+                }
                 contentStyle={{
                   background: "var(--bg-card)",
                   border: "1px solid var(--bordo)",
@@ -293,7 +392,7 @@ export function AnalisiSpese() {
                   color: "var(--testo)",
                 }}
               />
-              <Bar dataKey="totale" radius={[4, 4, 0, 0]}>
+              <Bar dataKey={cifra} radius={[4, 4, 0, 0]}>
                 {datiGrafico.map((d) => (
                   <Cell key={d.categoria} fill={d.colore} />
                 ))}
