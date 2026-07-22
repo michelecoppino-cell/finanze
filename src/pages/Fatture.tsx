@@ -166,7 +166,18 @@ export function Fatture() {
                 <th>Anno</th>
                 <th className="num">Fatturato</th>
                 <th className="num">Inarcassa</th>
-                <th className="num">Imposta</th>
+                <th className="num">
+                  Imposta
+                  <Info>
+                    Solo l'<b>imposta sostitutiva</b> (15%) calcolata dalle
+                    fatture: è lo stesso valore che vedi nella scheda{" "}
+                    <b>Tasse</b>. Lì la colonna "Imposta" somma però anche gli{" "}
+                    <b>aggiuntivi</b> (es. cedolare secca sull'affitto), che qui
+                    non compaiono perché riguardano redditi non presenti in
+                    questa tabella: per questo l'imposta di Tasse può risultare
+                    più alta di quella indicata qui.
+                  </Info>
+                </th>
                 <th className="num">
                   Entrate extra
                   <Info>
