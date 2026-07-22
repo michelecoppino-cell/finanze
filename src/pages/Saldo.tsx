@@ -445,10 +445,11 @@ export function Saldo() {
                 colore={COLORI.nettoTasse}
                 info={
                   <>
-                    Saldo grezzo − tasse maturate + tasse già pagate. Le tasse
-                    annue (pagina <b>Tasse</b>) sono spalmate giorno-per-giorno;
-                    i pagamenti reali ({euro(somme.tassePagate, true)}) vengono
-                    riaggiunti per non contarli due volte.
+                    Saldo grezzo meno il «manca da pagare» tasse a oggi, lo
+                    stesso della scheda <b>Tasse</b>: per ogni anno la quota di
+                    Inarcassa + Imposta maturata giorno-per-giorno meno i
+                    pagamenti già ripartiti ({euro(somme.tassePagate, true)}{" "}
+                    versati finora), con le voci segnate «Chiuso» escluse.
                   </>
                 }
               />

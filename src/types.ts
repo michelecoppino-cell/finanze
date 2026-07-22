@@ -112,13 +112,6 @@ export interface AnnoTasse {
    */
   spese?: number;
   /**
-   * Esclude l'anno dal calcolo del saldo reale (Saldo!maturate): utile per
-   * anni ricostruiti senza le vere transazioni/pagamenti tasse, dove
-   * sottrarre l'importo maturato creerebbe un buco mai compensato da un
-   * pagamento reale.
-   */
-  escludiDalSaldo?: boolean;
-  /**
    * Anno chiuso per Inarcassa/Imposta: se spuntato, l'importo di quella voce
    * non viene più conteggiato in "Da versare" nella tabella "Previsto vs
    * pagato" (né nei totali), anche se il calcolo grezzo darebbe un residuo.

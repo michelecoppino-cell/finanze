@@ -2,14 +2,17 @@
 // correzione del foglio "Saldo" dell'Excel:
 //
 //   grezzo         = saldo iniziale + cumulato (entrate - uscite) dai movimenti
-//   nettoTasse     = grezzo - tasse maturate giorno-per-giorno + tasse gia' pagate
+//   nettoTasse     = grezzo - "manca da pagare" tasse a quella data
 //   potereAcquisto = nettoTasse - incassi fattura a blocco + incassi fattura spalmati sul mese
 //
-// La quota tasse annua (forfettario + Inarcassa) viene spalmata su base
-// giornaliera: cosi' il saldo mostra i soldi davvero disponibili, come se le
-// tasse fossero accantonate ogni giorno invece che pagate a scatti.
+// Il "manca da pagare" tasse e' lo stesso della scheda Tasse (confrontoTasse):
+// per ogni anno la quota maturata giorno-per-giorno (Inarcassa + Imposta
+// dichiarate) meno i pagamenti gia' ripartiti, azzerata per le voci segnate
+// "Chiuso". Cosi' il gap tra "saldo grezzo" e "netto tasse" coincide, giorno
+// per giorno, col "manca da pagare oggi" mostrato nella scheda Tasse.
 
 import { AnnoTasse, Parametri, Transazione } from "../types";
+import { confrontoTasse } from "./tasse";
 
 export interface PuntoSaldo {
   data: string; // ISO
@@ -37,21 +40,8 @@ function pad(n: number): string {
 function isoDa(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
-function giornoDellAnno(d: Date): number {
-  const inizio = new Date(d.getFullYear(), 0, 0);
-  const diff = d.getTime() - inizio.getTime();
-  return Math.floor(diff / 86400000);
-}
 function giorniNelMese(anno: number, mese1: number): number {
   return new Date(anno, mese1, 0).getDate();
-}
-
-/** Tasse totali dell'anno: importi reali se presenti, altrimenti stima da fatturato x aliquota. */
-function tasseAnno(t: AnnoTasse): number {
-  const somma = (t.inarcassa ?? 0) + (t.irpef ?? 0) + (t.aggiuntivi ?? 0);
-  if (somma > 0) return somma;
-  if (t.fatturato && t.tassazione) return t.fatturato * t.tassazione;
-  return 0;
 }
 
 export function calcolaSaldo(
@@ -63,15 +53,13 @@ export function calcolaSaldo(
   transazioni = transazioni.filter((t) => !t.annullata);
   if (transazioni.length === 0) return { punti: [], conti: [] };
 
-  const tassePerAnno = new Map<number, number>();
-  for (const t of tasse) {
-    if (t.anno && !t.escludiDalSaldo) tassePerAnno.set(t.anno, tasseAnno(t));
-  }
-
   const ordinate = [...transazioni].sort((a, b) => a.data.localeCompare(b.data));
 
+  // Movimenti "tasse" (gia' senza annullate): alimentano il "pagato" ripartito
+  // del confronto per anno, imputato alla data del versamento.
+  const tasseMovimenti = ordinate.filter((t) => t.tasse);
+
   const netto = new Map<string, number>(); // entrate - uscite per giorno
-  const tassePagate = new Map<string, number>(); // uscite flag tasse per giorno
   const trasferGiorno = new Map<string, number>(); // uscite flag trasferimento per giorno
   const fatturaGiorno = new Map<string, number>(); // entrate flag fattura per giorno
   const fatturaMese = new Map<string, number>(); // entrate flag fattura per mese yyyy-mm
@@ -81,8 +69,6 @@ export function calcolaSaldo(
   for (const t of ordinate) {
     const d = t.data;
     netto.set(d, (netto.get(d) ?? 0) + (t.entrate ?? 0) - (t.uscite ?? 0));
-    if (t.tasse && t.uscite)
-      tassePagate.set(d, (tassePagate.get(d) ?? 0) + t.uscite);
     if (t.trasferimento && t.uscite)
       trasferGiorno.set(d, (trasferGiorno.get(d) ?? 0) + t.uscite);
     if (t.fattura && t.entrate) {
@@ -112,7 +98,6 @@ export function calcolaSaldo(
   const end = new Date(endIso + "T00:00:00");
 
   let cumNetto = par.saldoInizialeValore ?? 0;
-  let cumTassePagate = 0;
   let cumTrasferito = 0;
   let cumFatturaBlocco = 0;
   let fatturaMesiCompletati = 0;
@@ -126,7 +111,6 @@ export function calcolaSaldo(
     const mese = iso.slice(0, 7);
 
     cumNetto += netto.get(iso) ?? 0;
-    cumTassePagate += tassePagate.get(iso) ?? 0;
     cumTrasferito += trasferGiorno.get(iso) ?? 0;
     cumFatturaBlocco += fatturaGiorno.get(iso) ?? 0;
 
@@ -135,17 +119,17 @@ export function calcolaSaldo(
     }
     meseCorrente = mese;
 
-    // Tasse maturate: anni passati per intero, anno corrente pro-quota.
-    let maturate = 0;
-    const anno = d.getFullYear();
-    for (const [ty, val] of tassePerAnno) {
-      if (ty > anno) continue;
-      if (ty < anno) maturate += val;
-      else maturate += (val * giornoDellAnno(d)) / 365;
-    }
+    // "Manca da pagare" tasse a questa data: identico alla scheda Tasse. Per
+    // ogni anno somma (Inarcassa + Imposta) maturate a oggi meno i pagamenti
+    // gia' ripartiti, con le voci "Chiuso" azzerate. Il gap tra grezzo e netto
+    // tasse coincide cosi' col "manca da pagare" mostrato nella scheda Tasse.
+    const daVersare = confrontoTasse(tasse, tasseMovimenti, iso).reduce(
+      (s, r) => s + r.daVersareTotale,
+      0,
+    );
 
     const grezzo = cumNetto;
-    const nettoTasse = grezzo - maturate + cumTassePagate;
+    const nettoTasse = grezzo - daVersare;
 
     const giorniMese = giorniNelMese(d.getFullYear(), d.getMonth() + 1);
     const fatturaSpalmata =
