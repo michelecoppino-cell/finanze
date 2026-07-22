@@ -3,7 +3,7 @@
 // scheda "Tasse" eredita fatturato, Inarcassa e imposta di ogni anno: qui si
 // inseriscono le fatture, lì (e in Saldo/Proiezione) i numeri vengono riusati.
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useApp } from "../store/AppStore";
 import { AnnoTasse, Fattura } from "../types";
 import {
@@ -14,6 +14,7 @@ import {
   bolloFattura,
   integrativoFattura,
   totaleFattura,
+  giorniEffettiviFattura,
   MATERNITA_DEFAULT,
 } from "../engine/fatture";
 import { euro, uid, giorniLavorativiDelMese } from "../util";
@@ -348,16 +349,17 @@ export function Fatture() {
                     <th>Tipo</th>
                     <th>Data</th>
                     <th>Destinatario</th>
-                    <th className="num">Netto €</th>
                     <th className="num">
-                      Prezzo/gg €
+                      Giorni lav.
                       <Info>
-                        Tariffa giornaliera usata per calcolare il netto dalle
-                        giornate lavorate (bottone "gg"). Apri le giornate per
-                        vedere/modificare giorni lavorativi, ferie/malattia ed
-                        extra.
+                        Giorni lavorativi del mese − ferie/malattia + giorni
+                        extra + giorni spostati dal mese precedente. Premi il
+                        valore per aprire il pop-up e modificare i singoli
+                        campi.
                       </Info>
                     </th>
+                    <th className="num">Prezzo/gg €</th>
+                    <th className="num">Netto €</th>
                     <th className="num">Bollo €</th>
                     <th className="num">
                       Integr. 4%
@@ -384,8 +386,9 @@ export function Fatture() {
                 <tfoot>
                   <tr>
                     <th colSpan={4}>Totale fatturato</th>
-                    <th className="num">{euro(c.fatturato, true)}</th>
                     <th></th>
+                    <th></th>
+                    <th className="num">{euro(c.fatturato, true)}</th>
                     <th className="num">{euro(c.bolli, true)}</th>
                     <th className="num">{euro(c.integrativoGrezzo, true)}</th>
                     <th className="num">{euro(c.incassato, true)}</th>
@@ -587,19 +590,10 @@ function RigaFattura({
               title="Modifica giorni lavorativi, ferie/malattia ed extra"
               onClick={apriModaleGiornate}
             >
-              <b>{euro(netto, true)}</b>
+              <b>{formattaGiorni(giorniEffettiviFattura(f))}</b>
             </button>
           ) : (
-            <input
-              type="number"
-              step="0.01"
-              style={{ width: 90 }}
-              value={f.netto ?? ""}
-              disabled={bloccata}
-              onChange={(e) =>
-                onSet({ netto: e.target.value === "" ? undefined : Number(e.target.value) })
-              }
-            />
+            <span className="muted">—</span>
           )}
           <button
             className="secondario"
@@ -612,16 +606,27 @@ function RigaFattura({
           </button>
         </td>
         <td className="num">
-          <input
-            type="number"
-            step="1"
-            style={{ width: 80 }}
-            value={f.prezzoGiorno ?? ""}
+          <CampoPrezzoGiorno
+            valore={f.prezzoGiorno}
             disabled={bloccata}
-            onChange={(e) =>
-              onSet({ prezzoGiorno: e.target.value === "" ? undefined : Number(e.target.value) })
-            }
+            onSet={(v) => onSet({ prezzoGiorno: v })}
           />
+        </td>
+        <td className="num">
+          {f.daGiornate ? (
+            <b>{euro(netto, true)}</b>
+          ) : (
+            <input
+              type="number"
+              step="0.01"
+              style={{ width: 90 }}
+              value={f.netto ?? ""}
+              disabled={bloccata}
+              onChange={(e) =>
+                onSet({ netto: e.target.value === "" ? undefined : Number(e.target.value) })
+              }
+            />
+          )}
         </td>
         <td className="num">
           <input
@@ -694,6 +699,55 @@ function RigaFattura({
         </Modale>
       )}
     </>
+  );
+}
+
+/** Formatta i giorni (possono avere mezze giornate) senza zeri decimali inutili. */
+function formattaGiorni(n: number): string {
+  return n.toLocaleString("it-IT", { maximumFractionDigits: 1 });
+}
+
+/**
+ * Campo prezzo/giorno: input di testo (non "number") per poter digitare le
+ * cifre liberamente senza dover usare le freccette di incremento. Tiene un
+ * testo locale mentre si scrive, cosi' un punto/virgola decimale a fine
+ * digitazione non viene "rimangiato" dal valore numerico gia' salvato.
+ */
+function CampoPrezzoGiorno({
+  valore,
+  onSet,
+  disabled,
+}: {
+  valore: number | undefined;
+  onSet: (v: number | undefined) => void;
+  disabled?: boolean;
+}) {
+  const [testo, setTesto] = useState(valore === undefined ? "" : String(valore));
+
+  useEffect(() => {
+    setTesto(valore === undefined ? "" : String(valore));
+  }, [valore]);
+
+  function scrivi(v: string) {
+    const pulito = v.replace(",", ".");
+    if (pulito !== "" && !/^\d*\.?\d*$/.test(pulito)) return; // ignora caratteri non numerici
+    setTesto(v);
+    if (pulito === "" || pulito === ".") {
+      onSet(undefined);
+    } else if (!pulito.endsWith(".")) {
+      onSet(Number(pulito));
+    }
+  }
+
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      style={{ width: 70 }}
+      value={testo}
+      disabled={disabled}
+      onChange={(e) => scrivi(e.target.value)}
+    />
   );
 }
 

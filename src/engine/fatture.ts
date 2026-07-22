@@ -29,11 +29,17 @@ export const BOLLO_SOGLIA = 77.47;
 
 // ---------- Calcoli per singola fattura ----------
 
+/** Giorni effettivamente lavorati: giorni lavorativi del mese − ferie/malattia
+ * + giorni extra + giorni spostati dal mese precedente. Mai negativo. */
+export function giorniEffettiviFattura(f: Fattura): number {
+  const g = (f.giorni ?? 0) - (f.ferie ?? 0) + (f.extra ?? 0) + (f.spostati ?? 0);
+  return Math.max(0, g);
+}
+
 /** Netto imponibile: calcolato dalle giornate se richiesto, altrimenti il valore digitato. */
 export function nettoFattura(f: Fattura): number {
   if (f.daGiornate) {
-    const g = (f.giorni ?? 0) - (f.ferie ?? 0) + (f.extra ?? 0) + (f.spostati ?? 0);
-    return Math.max(0, g) * (f.prezzoGiorno ?? 0);
+    return giorniEffettiviFattura(f) * (f.prezzoGiorno ?? 0);
   }
   return f.netto ?? 0;
 }
