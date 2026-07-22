@@ -77,8 +77,9 @@ export interface ConfrontoAnnoTasse {
  * fonte del "manca da pagare": la usano sia la scheda Tasse sia il motore del
  * saldo, così i due numeri coincidono per costruzione.
  *
- * - previsto = Inarcassa (contributo) e Imposta (IRPEF) dichiarate per l'anno
- *   (`righe`, già fuse con le fatture da `tasseConFatture`);
+ * - previsto = Inarcassa (contributo) e Imposta (IRPEF + aggiuntivi, es.
+ *   cedolare secca) dichiarate per l'anno (`righe`, già fuse con le fatture da
+ *   `tasseConFatture`);
  * - pagato = ripartizione Inarcassa/Imposta dei movimenti "tasse" con data ≤
  *   asOf (solo la parte effettivamente allocata: un eventuale residuo non conta);
  * - "da versare" = quota maturata a oggi (previsto × frazione) − pagato,
@@ -106,7 +107,10 @@ export function confrontoTasse(
   return [...anni].sort((a, b) => a - b).map((anno) => {
     const dich = righe.find((t) => t.anno === anno);
     const previstoInarcassa = dich?.inarcassa ?? 0;
-    const previstoImposta = dich?.irpef ?? 0;
+    // "Imposta" = IRPEF/imposta sostitutiva + aggiuntivi (es. cedolare secca
+    // sull'affitto): sono imposte reali che maturano pro-quota come il resto e
+    // si versano/allocano insieme nell'F24, quindi entrano nella stessa voce.
+    const previstoImposta = (dich?.irpef ?? 0) + (dich?.aggiuntivi ?? 0);
     const pag = pagatoPerAnno.get(anno) ?? { inarcassa: 0, imposta: 0 };
     const frazione = frazioneTrascorsa(anno, asOfISO);
     const inarcassaChiuso = dich?.inarcassaChiuso ?? false;

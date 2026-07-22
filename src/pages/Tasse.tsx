@@ -270,6 +270,12 @@ export function Tasse() {
                   </th>
                   <th colSpan={4} style={{ textAlign: "center" }}>
                     Imposta
+                    <Info>
+                      IRPEF / imposta sostitutiva più gli <b>aggiuntivi</b>
+                      (es. cedolare secca sull'affitto): maturano pro-quota
+                      come il resto e si riducono con i pagamenti allocati a
+                      Imposta.
+                    </Info>
                   </th>
                   <th colSpan={3} style={{ textAlign: "center" }}>
                     Totale
