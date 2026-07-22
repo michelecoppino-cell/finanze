@@ -135,6 +135,23 @@ export function ultimoGiornoMese(annoMese: string): string {
   return `${annoMese}-${String(ultimo).padStart(2, "0")}`;
 }
 
+/** Numero di giorni lavorativi (lun-ven) di un mese (mese: 1 = gennaio). */
+export function giorniLavorativiMese(anno: number, mese1: number): number {
+  const ultimo = new Date(anno, mese1, 0).getDate();
+  let n = 0;
+  for (let d = 1; d <= ultimo; d++) {
+    const giorno = new Date(anno, mese1 - 1, d).getDay();
+    if (giorno !== 0 && giorno !== 6) n++;
+  }
+  return n;
+}
+
+/** ISO date (yyyy-mm-dd) -> giorni lavorativi (lun-ven) del suo mese. */
+export function giorniLavorativiDelMese(dataIso: string): number {
+  const [y, m] = dataIso.slice(0, 7).split("-").map(Number);
+  return giorniLavorativiMese(y, m);
+}
+
 /** Palette dei badge/linee per conto (assegnata per ordine alfabetico dei conti). */
 export const COLORI_CONTO = [
   "#4c78a8", "#f58518", "#54a24b", "#b279a2", "#e45756", "#72b7b2",
