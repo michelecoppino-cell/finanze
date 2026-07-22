@@ -202,12 +202,16 @@ export function tasseConFatture(tasse: AnnoTasse[], fatture?: Fattura[]): AnnoTa
     // "vivo" dalle fatture, così un anno non chiuso non resta ancorato a una
     // vecchia stima digitata a mano (che diventa obsoleta appena cambiano le
     // fatture) e Tasse/Saldo mostrano gli stessi numeri della scheda Fatture.
+    // Il fatturato dichiarato è spesso più completo della somma delle fatture
+    // registrate (arrotondamenti, righe non inserite): vale come reale quando
+    // l'anno è chiuso su almeno una voce, cioè i suoi numeri sono ormai fissati.
+    const chiuso = !!(base.inarcassaChiuso || base.impostaChiuso);
     perAnno.set(anno, {
       ...base,
       inarcassa:
         base.inarcassaChiuso && base.inarcassa !== undefined ? base.inarcassa : c.inarcassa,
       irpef: base.impostaChiuso && base.irpef !== undefined ? base.irpef : c.imposta,
-      fatturato: base.fatturato ?? c.fatturato,
+      fatturato: chiuso && base.fatturato !== undefined ? base.fatturato : c.fatturato,
     });
   }
   return [...perAnno.values()].sort((a, b) => a.anno - b.anno);
@@ -232,6 +236,8 @@ export interface RigaAnalisi {
   /** L'Inarcassa mostrata viene dal valore reale dichiarato (anno chiuso). */
   inarcassaDaChiuso: boolean;
   impostaDaChiuso: boolean;
+  /** Il fatturato mostrato viene dal valore reale dichiarato (anno chiuso). */
+  fatturatoDaChiuso: boolean;
   nettoInTasca: number;
   entrateExtra: number;
   spese: number;
@@ -286,6 +292,13 @@ export function analisiComplessiva(
     const impostaDaChiuso = ha && !!t?.impostaChiuso && t?.irpef !== undefined;
     const inarcassa = inarcassaDaChiuso ? t!.inarcassa! : inarcassaCalc;
     const imposta = impostaDaChiuso ? t!.irpef! : impostaCalc;
+    // Il fatturato dichiarato (spesso più completo della somma delle fatture)
+    // vince quando l'anno è chiuso su almeno una voce: stessa regola di
+    // tasseConFatture, così scheda Fatture e scheda Tasse mostrano lo stesso
+    // fatturato sia negli anni chiusi sia in quelli ancora aperti.
+    const fatturatoDaChiuso =
+      ha && !!(t?.inarcassaChiuso || t?.impostaChiuso) && t?.fatturato !== undefined;
+    if (fatturatoDaChiuso) fatturato = t!.fatturato!;
     const nettoInTasca = incassato - inarcassa - imposta;
     const entrateExtra = t?.entrateExtra ?? 0;
     const spese = t?.spese ?? 0;
@@ -300,6 +313,7 @@ export function analisiComplessiva(
       imposta,
       inarcassaDaChiuso,
       impostaDaChiuso,
+      fatturatoDaChiuso,
       nettoInTasca,
       entrateExtra,
       spese,
@@ -328,6 +342,8 @@ export function campiDaFatture(
     // valore reale dichiarato (modificabile), non la stima calcolata.
     inarcassa: ha && !raw?.inarcassaChiuso,
     irpef: ha && !raw?.impostaChiuso,
-    fatturato: ha && raw?.fatturato === undefined,
+    // Il fatturato è "reale" (dichiarato, modificabile) solo quando l'anno è
+    // chiuso; altrimenti mostra il calcolo dalle fatture (grigio, sola lettura).
+    fatturato: ha && !(raw?.inarcassaChiuso || raw?.impostaChiuso),
   };
 }

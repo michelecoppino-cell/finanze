@@ -154,9 +154,9 @@ export function Fatture() {
           quanto resta netto al mese. Il <b>netto/mese</b> è (netto in tasca +
           entrate extra non tassate − spese) diviso 12 (o 13, per confronto con
           un dipendente). Puoi aggiungere anni interamente <b>manuali</b> (es.
-          2020) e compilarli a mano. Per gli anni con fatture, Inarcassa e
-          imposta sono stimate; se marchi l'anno come <b>chiuso</b> nella scheda
-          Tasse, qui compare invece il valore reale (in{" "}
+          2020) e compilarli a mano. Per gli anni con fatture, fatturato,
+          Inarcassa e imposta sono stimati; se marchi l'anno come <b>chiuso</b>{" "}
+          nella scheda Tasse, qui compare invece il valore reale (in{" "}
           <span style={{ color: COLORE_CHIUSO, fontWeight: 600 }}>colore</span>).
         </p>
         <div className="tabella-wrap">
@@ -220,8 +220,12 @@ export function Fatture() {
                   {/* Fatturato: calcolato se ci sono fatture, altrimenti a mano */}
                   {r.haFatture ? (
                     <td className="num">
-                      {euro(r.fatturato, true)}
-                      {r.fatturatoStimato > 0 && (
+                      <ValoreStima
+                        valore={r.fatturato}
+                        chiuso={r.fatturatoDaChiuso}
+                        voce="fatturato"
+                      />
+                      {!r.fatturatoDaChiuso && r.fatturatoStimato > 0 && (
                         <span
                           className="muted"
                           style={{ display: "block", fontSize: 11 }}
