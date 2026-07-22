@@ -196,10 +196,17 @@ export function tasseConFatture(tasse: AnnoTasse[], fatture?: Fattura[]): AnnoTa
       ridotta: base.inarcassaRidotta,
       maternita: base.maternita,
     });
+    // Coerenza con l'Analisi complessiva (vedi analisiComplessiva): il valore
+    // reale dichiarato vince SOLO se l'anno è "chiuso" per quella voce
+    // (inarcassaChiuso / impostaChiuso). Altrimenti si usa sempre il calcolo
+    // "vivo" dalle fatture, così un anno non chiuso non resta ancorato a una
+    // vecchia stima digitata a mano (che diventa obsoleta appena cambiano le
+    // fatture) e Tasse/Saldo mostrano gli stessi numeri della scheda Fatture.
     perAnno.set(anno, {
       ...base,
-      inarcassa: base.inarcassa ?? c.inarcassa,
-      irpef: base.irpef ?? c.imposta,
+      inarcassa:
+        base.inarcassaChiuso && base.inarcassa !== undefined ? base.inarcassa : c.inarcassa,
+      irpef: base.impostaChiuso && base.irpef !== undefined ? base.irpef : c.imposta,
       fatturato: base.fatturato ?? c.fatturato,
     });
   }
@@ -315,8 +322,12 @@ export function campiDaFatture(
 ): { inarcassa: boolean; irpef: boolean; fatturato: boolean } {
   const ha = annoHaFatture(anno, fatture);
   return {
-    inarcassa: ha && raw?.inarcassa === undefined,
-    irpef: ha && raw?.irpef === undefined,
+    // Una voce è "calcolata dalle fatture" (cella grigia, sola lettura) quando
+    // l'anno ha fatture e NON è chiuso per quella voce: stessa regola di
+    // precedenza di tasseConFatture. Se l'anno è chiuso, in cella resta il
+    // valore reale dichiarato (modificabile), non la stima calcolata.
+    inarcassa: ha && !raw?.inarcassaChiuso,
+    irpef: ha && !raw?.impostaChiuso,
     fatturato: ha && raw?.fatturato === undefined,
   };
 }
