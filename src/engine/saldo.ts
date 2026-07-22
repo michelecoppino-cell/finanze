@@ -92,7 +92,15 @@ export function calcolaSaldo(
     par.saldoInizialeData && par.saldoInizialeData < ordinate[0].data
       ? par.saldoInizialeData
       : ordinate[0].data;
-  const endIso = ordinate[ordinate.length - 1].data;
+  // La serie arriva fino a OGGI anche se non ci sono movimenti recenti: le
+  // tasse continuano a maturare giorno per giorno, quindi il "netto tasse" a
+  // oggi (e il suo scarto dal grezzo) coincide col "manca da pagare oggi"
+  // della scheda Tasse, sempre calcolato a oggi. Senza questo, la serie si
+  // fermava all'ultimo movimento e lo scarto restava indietro di qualche
+  // giorno di maturazione (~importo tasse annuo / 365 al giorno).
+  const ultimoMovimento = ordinate[ordinate.length - 1].data;
+  const oggiIso = isoDa(new Date());
+  const endIso = ultimoMovimento > oggiIso ? ultimoMovimento : oggiIso;
 
   const start = new Date(startIso + "T00:00:00");
   const end = new Date(endIso + "T00:00:00");
