@@ -617,8 +617,7 @@ function RigaFattura({
             step="1"
             style={{ width: 80 }}
             value={f.prezzoGiorno ?? ""}
-            disabled={bloccata || !f.daGiornate}
-            title={!f.daGiornate ? "Attiva il calcolo dalle giornate (bottone \"gg\") per usarlo" : undefined}
+            disabled={bloccata}
             onChange={(e) =>
               onSet({ prezzoGiorno: e.target.value === "" ? undefined : Number(e.target.value) })
             }
