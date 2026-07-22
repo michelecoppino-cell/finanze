@@ -750,12 +750,27 @@ export function Tasse() {
                         con fatture
                       </span>
                     )}
+                    {(t.inarcassaChiuso || t.impostaChiuso) && (
+                      <span
+                        className="muted"
+                        style={{ fontSize: 11, display: "block" }}
+                        title="Anno chiuso: le voci bloccate non sono più modificabili. Deseleziona 'Chiuso' nella tabella 'Previsto vs pagato' per riabilitarle."
+                      >
+                        🔒 chiuso
+                      </span>
+                    )}
                   </td>
                   {derivato.inarcassa ? (
                     <CellaCalcolata valore={t.inarcassa} />
                   ) : (
                     <CellaNum
                       valore={t.inarcassa}
+                      disabled={t.inarcassaChiuso}
+                      title={
+                        t.inarcassaChiuso
+                          ? "Anno chiuso per Inarcassa: deseleziona \"Chiuso\" nella tabella sopra per modificare"
+                          : undefined
+                      }
                       onSet={(v) => modifica(t.anno, { inarcassa: v })}
                     />
                   )}
@@ -764,6 +779,12 @@ export function Tasse() {
                   ) : (
                     <CellaNum
                       valore={t.irpef}
+                      disabled={t.impostaChiuso}
+                      title={
+                        t.impostaChiuso
+                          ? "Anno chiuso per Imposta: deseleziona \"Chiuso\" nella tabella sopra per modificare"
+                          : undefined
+                      }
                       onSet={(v) => modifica(t.anno, { irpef: v })}
                     />
                   )}
@@ -839,17 +860,22 @@ function CellaCalcolata({ valore }: { valore: number | undefined }) {
 function CellaNum({
   valore,
   onSet,
+  disabled,
+  title,
 }: {
   valore: number | undefined;
   onSet: (v: number | undefined) => void;
+  disabled?: boolean;
+  title?: string;
 }) {
   return (
-    <td className="num">
+    <td className="num" title={title}>
       <input
         type="number"
         step="0.01"
         style={{ width: 90 }}
         value={valore === undefined ? "" : valore}
+        disabled={disabled}
         onChange={(e) =>
           onSet(e.target.value === "" ? undefined : Number(e.target.value))
         }

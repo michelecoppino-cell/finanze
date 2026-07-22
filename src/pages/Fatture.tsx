@@ -16,9 +16,10 @@ import {
   totaleFattura,
   MATERNITA_DEFAULT,
 } from "../engine/fatture";
-import { euro, uid } from "../util";
+import { euro, uid, giorniLavorativiDelMese } from "../util";
 import { Info } from "../components/Info";
 import { Pannello } from "../components/Pannello";
+import { Modale } from "../components/Modale";
 
 /** Colore per i valori reali presi da un anno "chiuso" (distinti dalle stime). */
 const COLORE_CHIUSO = "#b279a2";
@@ -69,6 +70,9 @@ export function Fatture() {
       numero: String(maxNum + 1),
       dataEmissione: `${anno}-01-31`,
       netto: 0,
+      // Nuova fattura: parte come "stimata" (bozza modificabile). Diventa
+      // "reale" (e si blocca) solo quando l'utente lo indica esplicitamente.
+      stimata: true,
     };
     aggiorna((d) => ({ ...d, fatture: [...(d.fatture ?? []), nuova] }));
   }
@@ -345,6 +349,15 @@ export function Fatture() {
                     <th>Data</th>
                     <th>Destinatario</th>
                     <th className="num">Netto €</th>
+                    <th className="num">
+                      Prezzo/gg €
+                      <Info>
+                        Tariffa giornaliera usata per calcolare il netto dalle
+                        giornate lavorate (bottone "gg"). Apri le giornate per
+                        vedere/modificare giorni lavorativi, ferie/malattia ed
+                        extra.
+                      </Info>
+                    </th>
                     <th className="num">Bollo €</th>
                     <th className="num">
                       Integr. 4%
@@ -372,6 +385,7 @@ export function Fatture() {
                   <tr>
                     <th colSpan={4}>Totale fatturato</th>
                     <th className="num">{euro(c.fatturato, true)}</th>
+                    <th></th>
                     <th className="num">{euro(c.bolli, true)}</th>
                     <th className="num">{euro(c.integrativoGrezzo, true)}</th>
                     <th className="num">{euro(c.incassato, true)}</th>
@@ -475,7 +489,7 @@ function VoceCalcolo({
   );
 }
 
-/** Riga editabile di una fattura; espande i campi "giornate" se attivi. */
+/** Riga editabile di una fattura; le giornate lavorate si aprono in un pop-up. */
 function RigaFattura({
   f,
   onSet,
@@ -485,11 +499,42 @@ function RigaFattura({
   onSet: (patch: Partial<Fattura>) => void;
   onElimina: () => void;
 }) {
-  const [espanso, setEspanso] = useState(false);
+  const [modaleAperto, setModaleAperto] = useState(false);
   const netto = nettoFattura(f);
   const bollo = bolloFattura(f);
   const integr = integrativoFattura(f);
   const tot = totaleFattura(f);
+  // Fattura "reale" (non più stimata): bloccata, non modificabile per errore.
+  const bloccata = !f.stimata;
+
+  function apriModaleGiornate() {
+    // Prima apertura: propone i giorni lavorativi del mese della fattura.
+    // Se poi l'utente lo modifica, il valore scritto resta (non viene più
+    // ricalcolato automaticamente).
+    if (f.giorni === undefined) {
+      onSet({ giorni: giorniLavorativiDelMese(f.dataEmissione) });
+    }
+    setModaleAperto(true);
+  }
+
+  function attivaGiornate() {
+    const attivo = !f.daGiornate;
+    onSet({ daGiornate: attivo || undefined });
+    if (attivo) apriModaleGiornate();
+  }
+
+  function toggleReale() {
+    if (bloccata) {
+      // Da reale a stimata: sblocca di nuovo la fattura alla modifica, va avvisato.
+      const ok = confirm(
+        `La fattura ${f.numero ?? ""} è segnata come "Reale". Rimettendola "Stimata" tornerà modificabile: continuare?`,
+      );
+      if (!ok) return;
+      onSet({ stimata: true });
+    } else {
+      onSet({ stimata: undefined });
+    }
+  }
 
   return (
     <>
@@ -499,6 +544,7 @@ function RigaFattura({
             type="text"
             style={{ width: 48 }}
             value={f.numero ?? ""}
+            disabled={bloccata}
             onChange={(e) => onSet({ numero: e.target.value || undefined })}
           />
         </td>
@@ -506,8 +552,12 @@ function RigaFattura({
           <button
             className="secondario"
             style={{ padding: "2px 8px", whiteSpace: "nowrap" }}
-            title="Fattura realmente emessa o solo stimata"
-            onClick={() => onSet({ stimata: f.stimata ? undefined : true })}
+            title={
+              bloccata
+                ? "Fattura reale: bloccata. Clicca per rimetterla stimata e modificarla"
+                : "Fattura realmente emessa o solo stimata"
+            }
+            onClick={toggleReale}
           >
             {f.stimata ? "Stimata" : "Reale"}
           </button>
@@ -516,6 +566,7 @@ function RigaFattura({
           <input
             type="date"
             value={f.dataEmissione}
+            disabled={bloccata}
             onChange={(e) => onSet({ dataEmissione: e.target.value })}
           />
         </td>
@@ -524,20 +575,27 @@ function RigaFattura({
             type="text"
             style={{ width: 120 }}
             value={f.destinatario ?? ""}
+            disabled={bloccata}
             onChange={(e) => onSet({ destinatario: e.target.value || undefined })}
           />
         </td>
         <td className="num">
           {f.daGiornate ? (
-            <span title="Calcolato dalle giornate" style={{ whiteSpace: "nowrap" }}>
+            <button
+              className="secondario"
+              style={{ padding: "2px 6px", whiteSpace: "nowrap" }}
+              title="Modifica giorni lavorativi, ferie/malattia ed extra"
+              onClick={apriModaleGiornate}
+            >
               <b>{euro(netto, true)}</b>
-            </span>
+            </button>
           ) : (
             <input
               type="number"
               step="0.01"
               style={{ width: 90 }}
               value={f.netto ?? ""}
+              disabled={bloccata}
               onChange={(e) =>
                 onSet({ netto: e.target.value === "" ? undefined : Number(e.target.value) })
               }
@@ -547,14 +605,24 @@ function RigaFattura({
             className="secondario"
             style={{ padding: "1px 6px", marginLeft: 4, fontSize: 11 }}
             title="Calcola il netto dalle giornate lavorate"
-            onClick={() => {
-              const attivo = !f.daGiornate;
-              onSet({ daGiornate: attivo || undefined });
-              setEspanso(attivo);
-            }}
+            disabled={bloccata}
+            onClick={attivaGiornate}
           >
             gg
           </button>
+        </td>
+        <td className="num">
+          <input
+            type="number"
+            step="1"
+            style={{ width: 80 }}
+            value={f.prezzoGiorno ?? ""}
+            disabled={bloccata || !f.daGiornate}
+            title={!f.daGiornate ? "Attiva il calcolo dalle giornate (bottone \"gg\") per usarlo" : undefined}
+            onChange={(e) =>
+              onSet({ prezzoGiorno: e.target.value === "" ? undefined : Number(e.target.value) })
+            }
+          />
         </td>
         <td className="num">
           <input
@@ -563,6 +631,7 @@ function RigaFattura({
             style={{ width: 60 }}
             placeholder={String(bollo)}
             value={f.bollo ?? ""}
+            disabled={bloccata}
             onChange={(e) =>
               onSet({ bollo: e.target.value === "" ? undefined : Number(e.target.value) })
             }
@@ -576,21 +645,12 @@ function RigaFattura({
           <input
             type="checkbox"
             checked={!!f.estero}
+            disabled={bloccata}
             onChange={(e) => onSet({ estero: e.target.checked || undefined })}
           />
         </td>
         <td>
           <span className="riga-azioni" style={{ gap: 4 }}>
-            {f.daGiornate && (
-              <button
-                className="secondario"
-                style={{ padding: "2px 6px" }}
-                title="Mostra/nascondi le giornate"
-                onClick={() => setEspanso((v) => !v)}
-              >
-                {espanso ? "▾" : "▸"}
-              </button>
-            )}
             <button
               className="secondario"
               style={{ padding: "2px 6px" }}
@@ -601,18 +661,38 @@ function RigaFattura({
           </span>
         </td>
       </tr>
-      {f.daGiornate && espanso && (
-        <tr>
-          <td colSpan={10} style={{ background: "var(--bg-elev)" }}>
-            <div className="form-griglia" style={{ padding: "4px 0" }}>
-              <CampoGiorno etichetta="Giorni lavorativi" valore={f.giorni} onSet={(v) => onSet({ giorni: v })} />
-              <CampoGiorno etichetta="Ferie / malattia" valore={f.ferie} onSet={(v) => onSet({ ferie: v })} />
-              <CampoGiorno etichetta="Giorni extra" valore={f.extra} onSet={(v) => onSet({ extra: v })} />
-              <CampoGiorno etichetta="Spostati dal mese prec." valore={f.spostati} onSet={(v) => onSet({ spostati: v })} />
-              <CampoGiorno etichetta="Prezzo giornaliero €" valore={f.prezzoGiorno} onSet={(v) => onSet({ prezzoGiorno: v })} step="1" />
-            </div>
-          </td>
-        </tr>
+      {modaleAperto && (
+        <Modale
+          titolo={`Giornate — fattura ${f.numero ?? ""} (${f.dataEmissione})`}
+          onClose={() => setModaleAperto(false)}
+        >
+          <div className="form-griglia">
+            <CampoGiorno
+              etichetta="Giorni lavorativi"
+              valore={f.giorni}
+              disabled={bloccata}
+              onSet={(v) => onSet({ giorni: v })}
+            />
+            <CampoGiorno
+              etichetta="Ferie / malattia"
+              valore={f.ferie}
+              disabled={bloccata}
+              onSet={(v) => onSet({ ferie: v })}
+            />
+            <CampoGiorno
+              etichetta="Giorni extra"
+              valore={f.extra}
+              disabled={bloccata}
+              onSet={(v) => onSet({ extra: v })}
+            />
+            <CampoGiorno
+              etichetta="Spostati dal mese prec."
+              valore={f.spostati}
+              disabled={bloccata}
+              onSet={(v) => onSet({ spostati: v })}
+            />
+          </div>
+        </Modale>
       )}
     </>
   );
@@ -669,11 +749,13 @@ function CampoGiorno({
   valore,
   onSet,
   step = "0.5",
+  disabled,
 }: {
   etichetta: string;
   valore: number | undefined;
   onSet: (v: number | undefined) => void;
   step?: string;
+  disabled?: boolean;
 }) {
   return (
     <label className="campo">
@@ -683,6 +765,7 @@ function CampoGiorno({
         step={step}
         style={{ width: 110 }}
         value={valore ?? ""}
+        disabled={disabled}
         onChange={(e) => onSet(e.target.value === "" ? undefined : Number(e.target.value))}
       />
     </label>
