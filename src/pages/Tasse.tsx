@@ -2,7 +2,8 @@ import { useMemo } from "react";
 import { useApp } from "../store/AppStore";
 import { AllocazioneTasse, AnnoTasse, Transazione } from "../types";
 import { tasseConFatture, annoHaFatture, campiDaFatture } from "../engine/fatture";
-import { euro } from "../util";
+import { allocazioneDi, confrontoTasse } from "../engine/tasse";
+import { euro, toIso } from "../util";
 import { Info } from "../components/Info";
 import { Pannello } from "../components/Pannello";
 
@@ -14,39 +15,8 @@ function stimaAnno(t: AnnoTasse): number {
   return 0;
 }
 
-/** Allocazione di un movimento tasse: se non ancora compilata, una riga sola
- * sull'anno della data del movimento, con importi da compilare. */
-function allocazioneDi(t: Transazione): AllocazioneTasse[] {
-  return t.allocazioneTasse && t.allocazioneTasse.length > 0
-    ? t.allocazioneTasse
-    : [{ anno: Number(t.data.slice(0, 4)) }];
-}
-
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
-}
-
-function annoBisestile(anno: number): boolean {
-  return (anno % 4 === 0 && anno % 100 !== 0) || anno % 400 === 0;
-}
-
-function giorniAnno(anno: number): number {
-  return annoBisestile(anno) ? 366 : 365;
-}
-
-/** Numero del giorno nell'anno (1 = 1 gennaio). */
-function giornoDelAnno(data: Date): number {
-  const inizio = new Date(data.getFullYear(), 0, 1);
-  return Math.floor((data.getTime() - inizio.getTime()) / 86400000) + 1;
-}
-
-/** Quota dell'anno effettivamente trascorsa a oggi: 1 per gli anni passati,
- * 0 per quelli futuri, giorni-trascorsi/giorni-anno per l'anno in corso. */
-function frazioneTrascorsa(anno: number, oggi: Date): number {
-  const annoOggi = oggi.getFullYear();
-  if (anno < annoOggi) return 1;
-  if (anno > annoOggi) return 0;
-  return Math.min(1, giornoDelAnno(oggi) / giorniAnno(anno));
 }
 
 export function Tasse() {
@@ -100,62 +70,14 @@ export function Tasse() {
     [dati.transazioni],
   );
 
-  const pagatoPerAnno = useMemo(() => {
-    const m = new Map<number, { inarcassa: number; imposta: number }>();
-    for (const t of movimentiTasse) {
-      for (const a of allocazioneDi(t)) {
-        if (!a.anno) continue;
-        const riga = m.get(a.anno) ?? { inarcassa: 0, imposta: 0 };
-        riga.inarcassa += a.inarcassa ?? 0;
-        riga.imposta += a.imposta ?? 0;
-        m.set(a.anno, riga);
-      }
-    }
-    return m;
-  }, [movimentiTasse]);
-
   const oggi = useMemo(() => new Date(), []);
 
-  const confrontoAnni = useMemo(() => {
-    const anni = new Set<number>([...righe.map((t) => t.anno), ...pagatoPerAnno.keys()]);
-    return [...anni].sort((a, b) => a - b).map((anno) => {
-      const dich = righe.find((t) => t.anno === anno);
-      const previstoInarcassa = dich?.inarcassa ?? 0;
-      const previstoImposta = dich?.irpef ?? 0;
-      const pag = pagatoPerAnno.get(anno) ?? { inarcassa: 0, imposta: 0 };
-      const previstoTotale = previstoInarcassa + previstoImposta;
-      const pagatoTotale = pag.inarcassa + pag.imposta;
-      // Per l'anno in corso le tasse maturano giorno per giorno: a oggi si
-      // deve solo la quota-parte dei giorni gia' trascorsi, non l'intera stima annua.
-      const frazione = frazioneTrascorsa(anno, oggi);
-      const inarcassaChiuso = dich?.inarcassaChiuso ?? false;
-      const impostaChiuso = dich?.impostaChiuso ?? false;
-      // "Chiuso" congela il residuo a zero: l'anno e' considerato saldato a
-      // prescindere da quanto darebbe il calcolo grezzo (dovuto - pagato).
-      const daVersareInarcassa = inarcassaChiuso
-        ? 0
-        : previstoInarcassa * frazione - pag.inarcassa;
-      const daVersareImposta = impostaChiuso
-        ? 0
-        : previstoImposta * frazione - pag.imposta;
-      return {
-        anno,
-        previstoInarcassa,
-        pagatoInarcassa: pag.inarcassa,
-        previstoImposta,
-        pagatoImposta: pag.imposta,
-        previstoTotale,
-        pagatoTotale,
-        frazione,
-        inarcassaChiuso,
-        impostaChiuso,
-        daVersareInarcassa,
-        daVersareImposta,
-        daVersareTotale: daVersareInarcassa + daVersareImposta,
-        note: dich?.note ?? "",
-      };
-    });
-  }, [righe, pagatoPerAnno, oggi]);
+  // Stesso calcolo usato dal motore del saldo (engine/tasse): il "manca da
+  // pagare oggi" qui sotto coincide col gap tra "saldo grezzo" e "netto tasse".
+  const confrontoAnni = useMemo(
+    () => confrontoTasse(righe, movimentiTasse, toIso(oggi)),
+    [righe, movimentiTasse, oggi],
+  );
 
   const totaliGenerali = useMemo(
     () =>
