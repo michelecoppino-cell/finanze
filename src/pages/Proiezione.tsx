@@ -64,8 +64,8 @@ export function Proiezione() {
   // Stima informativa della pensione pubblica Inarcassa (da prendere con le
   // pinze: il sistema può cambiare). Affiancata, non sommata, alla rendita.
   const inarcassa = useMemo(
-    () => stimaPensioneInarcassa(dati.fatture, dati.tasse, dati.parametri),
-    [dati.fatture, dati.tasse, dati.parametri],
+    () => stimaPensioneInarcassa(dati.fatture, dati.parametri, dati.eventiFuturi),
+    [dati.fatture, dati.parametri, dati.eventiFuturi],
   );
   const coperturaTotaleMese =
     renditaNettaAnnua !== undefined && inarcassa
@@ -251,11 +251,17 @@ export function Proiezione() {
                 Pensione Inarcassa stimata /anno
                 <Info>
                   Stima <b>grezza e informativa</b> col metodo contributivo:
-                  montante = somma dei contributi <b>soggettivi</b> (passati
-                  dalle fatture + {inarcassa.annoPensione - new Date().getFullYear()}{" "}
-                  anni futuri a ~{euro(inarcassa.soggettivoFuturo, true)}/anno),
-                  in € reali; pensione = montante ×{" "}
-                  {(inarcassa.coeff * 100).toFixed(1)}%.
+                  montante = per ogni anno (passato dalle fatture, futuro dagli
+                  scenari) contributo soggettivo ad <b>aliquota piena</b> + 50%
+                  dell'integrativo (il regime ridotto riduce solo il versamento
+                  in cassa, non il montante: Inarcassa accredita la differenza
+                  come "figurativo"), capitalizzato fino a pensione al{" "}
+                  <b>tasso di rivalutazione reale di Inarcassa</b> (
+                  {(inarcassa.rivalutazioneReale * 100).toFixed(2)}%/anno — il
+                  montante si rivaluta al PIL nominale, storicamente sotto
+                  l'inflazione, quindi perde potere d'acquisto in attesa della
+                  pensione: l'opposto degli Investimenti, già a tasso reale).
+                  Pensione = montante × {(inarcassa.coeff * 100).toFixed(1)}%.
                   <br />
                   {euro(inarcassa.montante, true)} montante ·{" "}
                   {inarcassa.anniContribuzione} anni di contribuzione.
