@@ -232,6 +232,12 @@ export interface Parametri {
   /** Tasso di prelievo annuo per stimare la rendita integrativa (default 0.04 = 4%). */
   tassoRendita?: number;
   /**
+   * Coefficiente di trasformazione per la stima (informativa) della pensione
+   * Inarcassa col metodo contributivo: pensione annua = montante × coeff.
+   * Dipende dall'eta' di pensionamento (default ~0.055). Editabile.
+   */
+  coeffTrasformazioneInarcassa?: number;
+  /**
    * Aliquota di tassazione della rendita integrativa post-pensione (default
    * 0.15 = 15%, tipico di un fondo pensione, riducibile fino al 9%). Serve a
    * mostrare la rendita anche al netto delle tasse. Se 0, la rendita e' gia'

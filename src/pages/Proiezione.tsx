@@ -14,6 +14,7 @@ import { useApp } from "../store/AppStore";
 import { EventoFuturo, Investimento } from "../types";
 import { calcolaProiezione, campionaMesi } from "../engine/proiezione";
 import { tasseConFatture } from "../engine/fatture";
+import { stimaPensioneInarcassa } from "../engine/inarcassa";
 import { euro, uid } from "../util";
 import { Info } from "../components/Info";
 import { Pannello } from "../components/Pannello";
@@ -49,11 +50,26 @@ export function Proiezione() {
   const annoPensione = ris.dataPensione?.slice(0, 4);
 
   // Rendita integrativa: la stima dell'engine è LORDA (tasso di prelievo sul
-  // capitale). Applichiamo l'aliquota per mostrarla anche al netto delle tasse.
+  // capitale). L'imposta si applica SOLO sulla plusvalenza latente (come un ETF:
+  // si tassa il guadagno, non il capitale versato né il liquido né l'immobile),
+  // quindi moltiplichiamo l'aliquota per la sola quota tassabile del capitale.
   const aliquotaRendita = p.aliquotaRendita ?? 0.15;
+  const quotaTassabile = ris.quotaTassabilePensione ?? 0;
+  const aliquotaEffettiva = aliquotaRendita * quotaTassabile;
   const renditaNettaAnnua =
     ris.renditaAnnua !== undefined
-      ? ris.renditaAnnua * (1 - aliquotaRendita)
+      ? ris.renditaAnnua * (1 - aliquotaEffettiva)
+      : undefined;
+
+  // Stima informativa della pensione pubblica Inarcassa (da prendere con le
+  // pinze: il sistema può cambiare). Affiancata, non sommata, alla rendita.
+  const inarcassa = useMemo(
+    () => stimaPensioneInarcassa(dati.fatture, dati.tasse, dati.parametri),
+    [dati.fatture, dati.tasse, dati.parametri],
+  );
+  const coperturaTotaleMese =
+    renditaNettaAnnua !== undefined && inarcassa
+      ? renditaNettaAnnua / 12 + inarcassa.pensioneAnnua / 12
       : undefined;
 
   if (dati.eventiFuturi.length === 0 && dati.investimenti.length === 0) {
@@ -133,11 +149,14 @@ export function Proiezione() {
           <div className="etichetta">
             Rendita netta stimata /anno
             <Info>
-              <b>Rendita netta</b> = rendita lorda × (1 − aliquota di
-              tassazione).
+              L'imposta ({(aliquotaRendita * 100).toFixed(0)}%) colpisce <b>solo
+              la plusvalenza</b> (come un ETF): il capitale versato, il liquido e
+              l'equity immobiliare non pagano capital gain al prelievo. Quota
+              tassabile del capitale = <b>{(quotaTassabile * 100).toFixed(0)}%</b>{" "}
+              → aliquota effettiva {(aliquotaEffettiva * 100).toFixed(1)}%.
               <br />
               {euro(ris.renditaAnnua, true)} × (1 −{" "}
-              {(aliquotaRendita * 100).toFixed(0)}%) ={" "}
+              {(aliquotaEffettiva * 100).toFixed(1)}%) ={" "}
               <b>{euro(renditaNettaAnnua, true)}</b>/anno
             </Info>
           </div>
@@ -146,7 +165,7 @@ export function Proiezione() {
           </div>
           <div className="muted" style={{ fontSize: 12 }}>
             ~{euro(renditaNettaAnnua !== undefined ? renditaNettaAnnua / 12 : undefined)}
-            /mese · dopo tasse {(aliquotaRendita * 100).toFixed(0)}%
+            /mese · tassa {(aliquotaRendita * 100).toFixed(0)}% sui soli guadagni
           </div>
         </div>
       </div>
@@ -201,15 +220,79 @@ export function Proiezione() {
               onChange={(e) => setParam({ inflazione: Number(e.target.value) })}
             />
           </label>
+          <label className="campo">
+            Coeff. trasformazione Inarcassa (es. 0.055)
+            <input
+              type="number"
+              step="0.001"
+              value={p.coeffTrasformazioneInarcassa ?? 0.055}
+              onChange={(e) =>
+                setParam({ coeffTrasformazioneInarcassa: Number(e.target.value) })
+              }
+            />
+          </label>
         </div>
         <p className="muted" style={{ margin: 0, fontSize: 12 }}>
           Tutti i valori sono in <b>potere d'acquisto di oggi</b>: entrate e
           rendimenti sono già al netto dell'inflazione. La <b>rendita lorda</b>{" "}
-          (tasso di prelievo sul capitale) <b>non è tassata</b>: la{" "}
-          <b>rendita netta</b> applica l'aliquota qui sopra (per un fondo
-          pensione la tassazione finale è ~15%, riducibile fino al 9%).
+          (tasso di prelievo sul capitale) <b>non è tassata</b>; la{" "}
+          <b>rendita netta</b> applica l'aliquota <b>solo alla plusvalenza</b>{" "}
+          (capital gain, tipico di un ETF: ~26%). Per un fondo pensione la
+          tassazione sarebbe ~15% (fino al 9%), ma da forfettario i versamenti
+          non sono deducibili.
         </p>
       </div>
+
+      {inarcassa && (
+        <div className="card">
+          <div className="stat-griglia">
+            <div className="stat">
+              <div className="etichetta">
+                Pensione Inarcassa stimata /anno
+                <Info>
+                  Stima <b>grezza e informativa</b> col metodo contributivo:
+                  montante = somma dei contributi <b>soggettivi</b> (passati
+                  dalle fatture + {inarcassa.annoPensione - new Date().getFullYear()}{" "}
+                  anni futuri a ~{euro(inarcassa.soggettivoFuturo, true)}/anno),
+                  in € reali; pensione = montante ×{" "}
+                  {(inarcassa.coeff * 100).toFixed(1)}%.
+                  <br />
+                  {euro(inarcassa.montante, true)} montante ·{" "}
+                  {inarcassa.anniContribuzione} anni di contribuzione.
+                </Info>
+              </div>
+              <div className="valore">{euro(inarcassa.pensioneAnnua)}</div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                ~{euro(inarcassa.pensioneMensile)}/mese (su 13) · a{" "}
+                {inarcassa.annoPensione}
+              </div>
+            </div>
+            <div className="stat">
+              <div className="etichetta">
+                Copertura totale stimata /mese
+                <Info>
+                  Rendita integrativa netta + pensione Inarcassa stimata, al
+                  mese. È un <b>ordine di grandezza</b>: la parte Inarcassa non è
+                  garantita e il sistema può cambiare.
+                </Info>
+              </div>
+              <div className="valore" style={{ color: COL_GAIN }}>
+                {euro(coperturaTotaleMese)}
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                integrativa {euro(renditaNettaAnnua !== undefined ? renditaNettaAnnua / 12 : undefined)}{" "}
+                + Inarcassa {euro(inarcassa.pensioneMensile)}
+              </div>
+            </div>
+          </div>
+          <p className="muted" style={{ margin: "4px 0 0", fontSize: 12 }}>
+            ⚠️ La pensione Inarcassa è una <b>stima ottimistica-neutra</b>
+            (montante rivalutato ~inflazione ⇒ ~0 reale; solo contributo
+            soggettivo). Aliquote, coefficienti, età e sostenibilità della cassa
+            possono cambiare: <b>non</b> considerarla un'entrata certa.
+          </p>
+        </div>
+      )}
 
       <div className="proiezione-griglia">
         <div className="card colonna-grafico">

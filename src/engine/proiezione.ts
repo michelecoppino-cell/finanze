@@ -57,6 +57,20 @@ export interface ProiezioneRisultato {
   renditaMensile?: number;
   /** Liquidita' minima raggiunta lungo la proiezione (se <0 lo scenario non si autofinanzia). */
   liquiditaMinima?: number;
+  /**
+   * Plusvalenza latente negli investimenti alla data di pensione: valore
+   * composto dei contributi versati entro la pensione meno i contributi stessi.
+   * E' l'unica parte del capitale soggetta a tassa sul capital gain (come un
+   * ETF: si tassa solo il guadagno, non il capitale versato ne' il liquido).
+   */
+  guadagniPensione?: number;
+  /**
+   * Quota del capitale a pensione che e' plusvalenza tassabile
+   * (guadagniPensione / capitalePensione). La rendita va tassata solo su questa
+   * frazione: il resto (capitale versato, liquido, equity immobiliare) non paga
+   * capital gain al prelievo.
+   */
+  quotaTassabilePensione?: number;
 }
 
 const MS_ANNO = 365.25 * 86400000;
@@ -287,6 +301,26 @@ export function calcolaProiezione(
   const renditaAnnua =
     capitalePensione !== undefined ? capitalePensione * tassoRendita : undefined;
 
+  // Plusvalenza latente a pensione: per ogni tranche, il valore composto dei
+  // contributi versati entro la pensione meno i contributi stessi. E' la sola
+  // parte tassabile al prelievo (capital gain). Il capitale gia' investito
+  // prima della proiezione (investitoBase) e' portato avanti "piatto", quindi
+  // la sua eventuale crescita va modellata come tranche: qui non genera
+  // plusvalenza (scelta conservativa: meno tasse stimate, non di piu').
+  let guadagniPensione = 0;
+  for (const inv of investimenti) {
+    const contribs = contributiPer.get(inv.id)!;
+    for (const c of contribs) {
+      if (c.data > dataPensione) continue;
+      const anni = Math.max(0, anniTra(c.data, dataPensione));
+      guadagniPensione += c.importo * (Math.pow(1 + inv.interesse, anni) - 1);
+    }
+  }
+  const quotaTassabilePensione =
+    capitalePensione && capitalePensione > 0
+      ? Math.min(1, Math.max(0, guadagniPensione / capitalePensione))
+      : 0;
+
   return {
     punti,
     patrimonioOggi: punti[0]?.totale,
@@ -295,6 +329,8 @@ export function calcolaProiezione(
     renditaAnnua,
     renditaMensile: renditaAnnua !== undefined ? renditaAnnua / 12 : undefined,
     liquiditaMinima,
+    guadagniPensione,
+    quotaTassabilePensione,
   };
 }
 
