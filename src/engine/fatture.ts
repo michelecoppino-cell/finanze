@@ -17,9 +17,16 @@ export const ALIQUOTA_IMPOSTA = 0.15;
 export const ALIQUOTA_INTEGRATIVO = 0.04;
 /** Aliquota base del contributo soggettivo Inarcassa (×2 = 14,5% pieno, ×1 = 7,25% ridotto). */
 export const ALIQUOTA_SOGGETTIVO = 0.0725;
-/** Contributo soggettivo minimo annuo. */
+/**
+ * Contributo soggettivo minimo annuo. Inarcassa lo rivaluta ogni anno (es.
+ * 2026: 2.785€): questa costante è un valore fisso unico per tutti gli anni,
+ * quindi è un'approssimazione — non modella la crescita storica del minimo
+ * anno per anno. Non alzarla al valore corrente senza gestire i minimi
+ * per-anno, altrimenti si "riscrivono" (in alto) gli importi storici reali
+ * delle fatture già chiuse.
+ */
 export const MIN_SOGGETTIVO = 780;
-/** Contributo integrativo minimo annuo. */
+/** Contributo integrativo minimo annuo. Stessa avvertenza di MIN_SOGGETTIVO. */
 export const MIN_INTEGRATIVO = 231.5;
 /** Contributo maternità di default. */
 export const MATERNITA_DEFAULT = 72;
